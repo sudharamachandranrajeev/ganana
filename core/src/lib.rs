@@ -11,6 +11,7 @@
 //! never stored.
 
 pub mod accounts;
+pub mod bar;
 pub mod claude_relay;
 pub mod db;
 mod jsonl;

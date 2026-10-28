@@ -2,6 +2,7 @@
   import * as api from './lib/api'
   import type { Limits, Relay } from './lib/api'
   import Alerts from './lib/Alerts.svelte'
+  import BarSetup from './lib/BarSetup.svelte'
   import Card from './lib/Card.svelte'
   import ConnectClaude from './lib/ConnectClaude.svelte'
   import { meterName } from './lib/format'
@@ -72,8 +73,13 @@
       </Card>
     </div>
     <Card title="Alerts" explain="alerts" index={meters.length + 3}>
-      <Alerts thresholds={data.thresholds} onchange={load} />
+      <Alerts thresholds={data.thresholds} resetAlerts={data.reset_alerts} onchange={load} />
     </Card>
+    <div class="wide">
+      <Card title="Show in your bar" explain="bar" index={meters.length + 4}>
+        <BarSetup />
+      </Card>
+    </div>
   </div>
 {:else if !error}
   <div class="loading" aria-busy="true">Reading your limits…</div>

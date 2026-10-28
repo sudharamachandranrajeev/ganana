@@ -1,13 +1,22 @@
 <script lang="ts">
   import * as api from './api'
 
-  let { thresholds, onchange }: { thresholds: number[]; onchange: () => void } = $props()
+  let {
+    thresholds,
+    resetAlerts,
+    onchange,
+  }: { thresholds: number[]; resetAlerts: boolean; onchange: () => void } = $props()
 
   const LEVELS = [50, 75, 90, 100]
 
   async function toggle(level: number) {
     const next = thresholds.includes(level) ? thresholds.filter((t) => t !== level) : [...thresholds, level]
     await api.setThresholds(next)
+    onchange()
+  }
+
+  async function toggleReset() {
+    await api.setResetAlerts(!resetAlerts)
     onchange()
   }
 </script>
@@ -21,6 +30,10 @@
     </button>
   {/each}
 </div>
+<button class="reset" role="checkbox" aria-checked={resetAlerts} class:on={resetAlerts} onclick={toggleReset}>
+  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" /></svg>
+  Also tell me when a window I was warned about resets
+</button>
 <p class="note">
   {#if thresholds.length}
     One notification per level per window. Closing the window keeps Gaṇanā running in the tray, so alerts still arrive.
@@ -30,6 +43,12 @@
 </p>
 
 <style>
+  .reset {
+    margin-bottom: 12px;
+    border-radius: 14px;
+    text-align: left;
+  }
+
   p {
     margin: 0;
     font-size: 0.88rem;

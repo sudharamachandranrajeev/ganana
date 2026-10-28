@@ -380,6 +380,16 @@ impl Store {
     /// Records an alert for a window; false if it was already recorded. A
     /// window's reset time drifts a little between readings, so any reset
     /// within ten minutes counts as the same window.
+    /// Whether any limit alert was sent for this window.
+    pub fn alerted(&self, meter: &str, window_minutes: i64, resets_at: i64) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM alert_sent WHERE meter = ?1 AND window_minutes = ?2
+                AND abs(resets_at - ?3) < 600 AND threshold > 0)",
+            params![meter, window_minutes, resets_at],
+            |r| r.get(0),
+        )?)
+    }
+
     pub fn claim_alert(&self, meter: &str, window_minutes: i64, resets_at: i64, threshold: i64) -> Result<bool> {
         let seen: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM alert_sent WHERE meter = ?1 AND window_minutes = ?2

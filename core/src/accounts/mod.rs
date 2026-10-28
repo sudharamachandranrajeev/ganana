@@ -53,6 +53,16 @@ pub struct Account {
     pub credit_used: Option<f64>,
 }
 
+impl Account {
+    /// Prepaid credit left, when it is low: under a tenth of what was bought,
+    /// or under a dollar.
+    pub fn low_credit(&self) -> Option<f64> {
+        let (total, used) = (self.credit_total?, self.credit_used?);
+        let left = total - used;
+        (total > 0.0 && left < (total * 0.1).max(1.0)).then_some(left.max(0.0))
+    }
+}
+
 /// Usage of one model on one UTC day.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageRow {

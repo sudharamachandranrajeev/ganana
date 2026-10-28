@@ -162,6 +162,50 @@ fn codex_record_and_count_share_one_event() {
     }
 }
 
+/// Older Codex versions start a subagent's log with a replay of the parent's
+/// whole history, re-timed to the subagent's start and partly duplicated
+/// (ccusage issue 950 measured 91x overcounting from this). The replay must
+/// count once, at the parent's original time.
+#[test]
+fn codex_subagent_replay_counts_once() {
+    let h = Home::new();
+    let u = codex_usage(1000, 600, 50, 20);
+    let count = |ts: &str, total: i64| {
+        format!(
+            r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{u},"total_token_usage":{{"total_tokens":{total}}}}}}}}}"#
+        )
+    };
+    let context = r#"{"timestamp":"2026-10-02T09:00:01Z","type":"turn_context","payload":{"model":"gpt-6-astra","cwd":"/work/beta"}}"#;
+    let parent = [
+        r#"{"timestamp":"2026-10-02T09:00:00Z","type":"session_meta","payload":{"id":"parent","cwd":"/work/beta"}}"#
+            .to_string(),
+        context.to_string(),
+        count("2026-10-02T09:00:05Z", 1050),
+        count("2026-10-02T09:10:00Z", 2100),
+    ];
+    let child = [
+        r#"{"timestamp":"2026-10-03T12:00:00Z","type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#.to_string(),
+        r#"{"timestamp":"2026-10-03T12:00:00Z","type":"session_meta","payload":{"id":"parent","cwd":"/work/beta"}}"#.to_string(),
+        context.to_string(),
+        count("2026-10-03T12:00:00.100Z", 1050),
+        count("2026-10-03T12:00:00.100Z", 1050),
+        count("2026-10-03T12:00:00.200Z", 2100),
+        // The subagent's own call, after the replay.
+        count("2026-10-03T12:05:00Z", 3150),
+    ];
+    // Child first: the worst order, since its replay times are later.
+    h.write(".codex/sessions/2026/10/03/rollout-child.jsonl", &(child.join("\n") + "\n"));
+    h.scan();
+    h.write(".codex/sessions/2026/10/02/rollout-parent.jsonl", &(parent.join("\n") + "\n"));
+    h.scan();
+
+    let mut times: Vec<i64> = h.events().iter().map(|e| e.ts).collect();
+    times.sort();
+    let day2 = Local.with_ymd_and_hms(2026, 10, 3, 0, 0, 0).unwrap().timestamp_millis();
+    assert_eq!(times.len(), 3, "two parent calls and one subagent call");
+    assert_eq!(times.iter().filter(|t| **t < day2).count(), 2, "replayed calls keep the parent's time");
+}
+
 #[test]
 fn qwen_code_subtracts_cached_input() {
     let h = Home::new();

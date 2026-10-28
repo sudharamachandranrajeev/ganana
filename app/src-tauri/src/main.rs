@@ -6,11 +6,16 @@ use ganana_core::claude_relay;
 fn main() {
     // Claude Code runs this binary as its status line to pass on plan limits.
     let mut args = std::env::args_os().skip(1);
-    if args.next().is_some_and(|a| a == claude_relay::FLAG) {
-        if let Some(dir) = args.next() {
-            claude_relay::run(dir.as_ref());
+    match args.next() {
+        Some(a) if a == claude_relay::FLAG => {
+            if let Some(dir) = args.next() {
+                claude_relay::run(dir.as_ref());
+            }
+            return;
         }
-        return;
+        // Status bars run `ganana bar` for a one-line summary.
+        Some(a) if a == "bar" => std::process::exit(ganana_lib::bar(args.collect())),
+        _ => {}
     }
     ganana_lib::run()
 }

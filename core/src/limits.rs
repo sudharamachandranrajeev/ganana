@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use chrono::{DateTime, Datelike, Local, Months, NaiveDate};
+use chrono::{DateTime, Datelike, Local, Months, NaiveDate, TimeZone};
 use serde::Serialize;
 
 use crate::db::Store;
@@ -59,6 +59,8 @@ pub struct Limits {
     pub windows: Vec<Window>,
     pub plans: Vec<PlanValue>,
     pub thresholds: Vec<i64>,
+    /// Notify when a window that triggered an alert resets.
+    pub reset_alerts: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -74,7 +76,12 @@ pub fn limits(store: &Store, catalog: &Catalog, now: DateTime<Local>) -> Result<
     let now_ms = now.timestamp_millis();
     let snapshots = store.limits_since(now_ms - 8 * 24 * 3_600_000)?;
     let plans = store.plans()?.into_iter().map(|p| plan_value(store, catalog, p, now)).collect::<Result<_>>()?;
-    Ok(Limits { windows: windows(&snapshots, now_ms), plans, thresholds: thresholds(store)? })
+    Ok(Limits {
+        windows: windows(&snapshots, now_ms),
+        plans,
+        thresholds: thresholds(store)?,
+        reset_alerts: store.setting(RESET_ALERTS)?.as_deref() == Some("on"),
+    })
 }
 
 /// The latest window per meter and length.
@@ -148,6 +155,70 @@ pub fn new_alerts(store: &Store, windows: &[Window], thresholds: &[i64]) -> Resu
         }
     }
     Ok(alerts)
+}
+
+/// Windows that reset in the last few hours after an alert warned about
+/// them, each returned once, for a "you can go on" notice. Off unless the
+/// user turned it on.
+pub fn new_resets<'a>(store: &Store, windows: &'a [Window], now_s: i64) -> Result<Vec<&'a Window>> {
+    if store.setting(RESET_ALERTS)?.as_deref() != Some("on") {
+        return Ok(Vec::new());
+    }
+    let mut due = Vec::new();
+    for w in windows.iter().filter(|w| w.reset_passed && now_s - w.resets_at < 6 * 3600) {
+        // Threshold 0 marks the reset notice as sent.
+        if store.alerted(&w.meter, w.window_minutes, w.resets_at)?
+            && store.claim_alert(&w.meter, w.window_minutes, w.resets_at, 0)?
+        {
+            due.push(w);
+        }
+    }
+    Ok(due)
+}
+
+/// Setting that turns reset notices on ("on") or off.
+pub const RESET_ALERTS: &str = "reset_alerts";
+
+/// "Claude", "ChatGPT (Codex)".
+pub fn meter_name(meter: &str) -> &str {
+    match meter {
+        "claude" => "Claude",
+        "codex" => "ChatGPT (Codex)",
+        other => other,
+    }
+}
+
+/// "5-hour", "weekly", "2-hour".
+pub fn window_name(minutes: i64) -> String {
+    match minutes {
+        300 => "5-hour".into(),
+        10080 => "weekly".into(),
+        m if m % 60 == 0 => format!("{}-hour", m / 60),
+        m => format!("{m}-minute"),
+    }
+}
+
+/// "16:40" today, "Sat 16:40" on another day.
+pub fn clock(unix_s: i64, now: DateTime<Local>) -> String {
+    Local.timestamp_opt(unix_s, 0).single().map_or_else(String::new, |t| {
+        let fmt = if t.date_naive() == now.date_naive() { "%H:%M" } else { "%a %H:%M" };
+        t.format(fmt).to_string()
+    })
+}
+
+/// "35 min", "2 h 14 min", "3 days 4 h".
+pub fn duration(seconds: i64) -> String {
+    let min = (seconds.max(0) + 30) / 60;
+    if min < 60 {
+        return format!("{min} min");
+    }
+    let h = min / 60;
+    if h < 24 {
+        return if min % 60 > 0 { format!("{h} h {} min", min % 60) } else { format!("{h} h") };
+    }
+    let d = h / 24;
+    let days = if d > 1 { format!("{d} days") } else { "1 day".into() };
+    if h % 24 > 0 { format!("{days} {} h", h % 24) } else { days }
 }
 
 pub fn thresholds(store: &Store) -> Result<Vec<i64>> {

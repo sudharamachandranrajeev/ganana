@@ -15,6 +15,7 @@ tauri-build = { version = "2.7.4", features = [] }
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dirs = "7"
 ganana-core = { version = "0.1.0", path = "../../core" }
 notify-debouncer-mini = "0.7"
 serde = { version = "1.0.229", features = ["derive"] }

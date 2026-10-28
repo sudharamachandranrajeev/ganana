@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use chrono::{Local, TimeZone};
+use chrono::Local;
 use ganana_core::accounts::{self, Account, AccountsReport, HttpStatus, csv_import};
 use ganana_core::claude_relay::{self, RelayStatus};
 use ganana_core::limits::{self, Alert};
@@ -28,6 +28,16 @@ const ACCOUNT_SYNC: Duration = Duration::from_secs(15 * 60);
 const KEYRING_SERVICE: &str = "ganana";
 /// Largest CSV file accepted for import.
 const CSV_LIMIT: usize = 50 << 20;
+/// Must match `identifier` in tauri.conf.json: it names the data folder.
+const IDENTIFIER: &str = "dev.ganana.app";
+const BAR_PLUGIN: &str = "ganana.usage";
+/// The Omarchy bar plugin, built into the binary so the app can install it.
+const BAR_PLUGIN_FILES: &[(&str, &str)] = &[
+    ("manifest.json", include_str!("../../../integrations/omarchy/ganana.usage/manifest.json")),
+    ("Panel.qml", include_str!("../../../integrations/omarchy/ganana.usage/Panel.qml")),
+    ("UsageContent.qml", include_str!("../../../integrations/omarchy/ganana.usage/UsageContent.qml")),
+    ("UsageRing.qml", include_str!("../../../integrations/omarchy/ganana.usage/UsageRing.qml")),
+];
 
 struct App {
     db: PathBuf,
@@ -109,6 +119,29 @@ impl App {
         }
     }
 
+    /// Tells the user when a window they were warned about has reset, if
+    /// they asked for that. Resets happen by the clock, so this runs on a
+    /// timer rather than after a scan.
+    fn reset_notices(&self, app: &AppHandle) {
+        let due = self.store().and_then(|store| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let windows = limits::windows(&store.limits_since(now - 8 * 24 * 3_600_000)?, now);
+            Ok(limits::new_resets(&store, &windows, now / 1000)?.into_iter().cloned().collect::<Vec<_>>())
+        });
+        for w in due.unwrap_or_default() {
+            let _ = app
+                .notification()
+                .builder()
+                .title(format!(
+                    "{} {} window has reset",
+                    limits::meter_name(&w.meter),
+                    limits::window_name(w.window_minutes)
+                ))
+                .body("You can go on: the limit starts again from zero.")
+                .show();
+        }
+    }
+
     /// Reads every API account again with its stored key, then tells the UI.
     fn sync_accounts(&self, app: &AppHandle) {
         let _one_at_a_time = self.sync_lock.lock().unwrap();
@@ -127,13 +160,9 @@ impl App {
     /// what was bought, or under a dollar.
     fn credit_alert(&self, app: &AppHandle, store: &Store) {
         for a in store.accounts().unwrap_or_default() {
-            let (Some(total), Some(used)) = (a.credit_total, a.credit_used) else { continue };
-            let left = total - used;
+            let (Some(left), Some(total)) = (a.low_credit(), a.credit_total) else { continue };
             let setting = format!("credit-alert-{}", a.id);
             let total_text = format!("{total:.2}");
-            if total <= 0.0 || left >= (total * 0.1).max(1.0) {
-                continue;
-            }
             if store.setting(&setting).ok().flatten().as_deref() == Some(total_text.as_str()) {
                 continue;
             }
@@ -142,7 +171,7 @@ impl App {
                 .notification()
                 .builder()
                 .title(format!("{} credit is low", a.name))
-                .body(format!("${:.2} left of ${total:.2}. Top up to keep it running.", left.max(0.0)))
+                .body(format!("${left:.2} left of ${total:.2}. Top up to keep it running."))
                 .show();
         }
     }
@@ -182,32 +211,19 @@ impl App {
 }
 
 fn alert_text(a: &Alert) -> (String, String) {
-    let meter = match a.meter.as_str() {
-        "claude" => "Claude",
-        "codex" => "ChatGPT (Codex)",
-        other => other,
-    };
-    let window = match a.window_minutes {
-        300 => "5-hour".to_string(),
-        10080 => "weekly".to_string(),
-        m if m % 60 == 0 => format!("{}-hour", m / 60),
-        m => format!("{m}-minute"),
-    };
+    let (meter, window) = (limits::meter_name(&a.meter), limits::window_name(a.window_minutes));
     let title = if a.used_pct >= 100.0 {
         format!("{meter} {window} limit reached")
     } else {
         format!("{meter} {window} limit {:.0}% used", a.used_pct)
     };
-    let resets = Local.timestamp_opt(a.resets_at, 0).single().map_or_else(String::new, |t| {
-        let fmt = if t.date_naive() == Local::now().date_naive() { "%H:%M" } else { "%a %H:%M" };
-        t.format(fmt).to_string()
-    });
-    (title, format!("It resets at {resets}."))
+    (title, format!("It resets at {}.", limits::clock(a.resets_at, Local::now())))
 }
 
-/// The path Claude Code should run. Inside an AppImage the binary's own path
-/// is a temporary mount, so the AppImage file itself is used.
-fn relay_exe() -> CommandResult<PathBuf> {
+/// The path other programs (Claude Code, the bar) should run. Inside an
+/// AppImage the binary's own path is a temporary mount, so the AppImage file
+/// itself is used.
+fn self_exe() -> CommandResult<PathBuf> {
     match std::env::var_os("APPIMAGE") {
         Some(p) => Ok(p.into()),
         None => std::env::current_exe().map_err(err),
@@ -224,6 +240,14 @@ fn init_keyring() -> Result<(), String> {
     return Err("no supported keyring on this system".into());
     #[allow(unreachable_code)]
     Ok(())
+}
+
+/// Checks once a minute for windows that reset.
+fn reset_loop(app: AppHandle) {
+    loop {
+        std::thread::sleep(Duration::from_secs(60));
+        app.state::<App>().reset_notices(&app);
+    }
 }
 
 /// Syncs the provider accounts now and then every `ACCOUNT_SYNC`.
@@ -309,6 +333,11 @@ fn delete_plan(id: i64, state: State<'_, App>) -> CommandResult<()> {
 #[tauri::command]
 fn set_thresholds(thresholds: Vec<i64>, state: State<'_, App>) -> CommandResult<()> {
     state.store().and_then(|s| limits::set_thresholds(&s, &thresholds)).map_err(err)
+}
+
+#[tauri::command]
+fn set_reset_alerts(on: bool, state: State<'_, App>) -> CommandResult<()> {
+    state.store().and_then(|s| s.set_setting(limits::RESET_ALERTS, if on { "on" } else { "off" })).map_err(err)
 }
 
 #[tauri::command]
@@ -461,7 +490,7 @@ fn relay_status(state: State<'_, App>) -> CommandResult<Relay> {
 /// Pro/Max limits reach the dashboard.
 #[tauri::command]
 fn relay_install(state: State<'_, App>) -> CommandResult<Relay> {
-    let exe = relay_exe()?;
+    let exe = self_exe()?;
     relay(&state, |settings, dir| claude_relay::install(settings, dir, &exe))
 }
 
@@ -541,6 +570,101 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The app's data folder, the same one Tauri gives the app, found without
+/// starting Tauri.
+fn data_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join(IDENTIFIER))
+}
+
+/// `ganana bar [--format json|plain|waybar]`: prints a summary for status
+/// bars and returns the exit code. It only reads; the app keeps the data
+/// current.
+pub fn bar(args: Vec<std::ffi::OsString>) -> i32 {
+    let format = match args.iter().position(|a| a == "--format").map(|i| args.get(i + 1)) {
+        None => "json".to_string(),
+        Some(Some(f)) => f.to_string_lossy().into_owned(),
+        Some(None) => String::new(),
+    };
+    if !["json", "plain", "waybar"].contains(&format.as_str()) {
+        eprintln!("usage: ganana bar [--format json|plain|waybar]");
+        return 2;
+    }
+    let Some(db) = data_dir().map(|d| d.join("ganana.db")).filter(|p| p.exists()) else {
+        eprintln!("Gaṇanā has not run yet: open the app once so it can read your usage.");
+        return 1;
+    };
+    let summary =
+        Store::open(&db).and_then(|store| ganana_core::bar::bar(&store, &Catalog::load(&store)?, Local::now()));
+    match summary {
+        Ok(b) => {
+            match format.as_str() {
+                "plain" => println!("{}", b.text),
+                "waybar" => println!("{}", ganana_core::bar::waybar(&b)),
+                _ => println!("{}", serde_json::to_string(&b).unwrap_or_default()),
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("Could not read Gaṇanā's data: {}", err(e));
+            1
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct BarWidget {
+    /// This desktop has the Omarchy shell.
+    available: bool,
+    installed: bool,
+}
+
+/// Where Omarchy keeps user plugins, if this desktop runs Omarchy.
+fn omarchy_plugins() -> Option<PathBuf> {
+    let on_path =
+        std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|d| d.join("omarchy").is_file()));
+    let dir = dirs::config_dir()?.join("omarchy");
+    (on_path && dir.is_dir()).then(|| dir.join("plugins"))
+}
+
+fn omarchy(args: &[&str]) -> CommandResult<()> {
+    let out = std::process::Command::new("omarchy").args(args).output().map_err(err)?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("omarchy {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+#[tauri::command]
+fn bar_widget_status() -> BarWidget {
+    let plugins = omarchy_plugins();
+    BarWidget {
+        available: plugins.is_some(),
+        installed: plugins.is_some_and(|p| p.join(BAR_PLUGIN).join("manifest.json").is_file()),
+    }
+}
+
+/// Puts the Gaṇanā widget on the Omarchy bar, pointed at this program.
+#[tauri::command]
+fn bar_widget_install() -> CommandResult<BarWidget> {
+    let dir = omarchy_plugins().ok_or("this desktop does not run the Omarchy shell")?.join(BAR_PLUGIN);
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    for (name, text) in BAR_PLUGIN_FILES {
+        std::fs::write(dir.join(name), text).map_err(err)?;
+    }
+    let exe = self_exe()?;
+    omarchy(&["plugin", "enable", BAR_PLUGIN])?;
+    omarchy(&["bar", "set", BAR_PLUGIN, "command", &exe.to_string_lossy()])?;
+    Ok(bar_widget_status())
+}
+
+/// Takes the widget off the bar. Omarchy keeps a backup of the folder.
+#[tauri::command]
+fn bar_widget_remove() -> CommandResult<BarWidget> {
+    omarchy(&["plugin", "remove", BAR_PLUGIN, "--yes"])?;
+    Ok(bar_widget_status())
+}
+
 pub fn run() {
     tauri::Builder::default()
         // A second launch shows the running app instead of starting another.
@@ -563,7 +687,7 @@ pub fn run() {
                 keyring_error: init_keyring().err(),
             };
             // Keep an installed relay pointing at this binary if the app moved.
-            if let (Ok(settings), Ok(exe)) = (state.claude_settings(), relay_exe())
+            if let (Ok(settings), Ok(exe)) = (state.claude_settings(), self_exe())
                 && matches!(claude_relay::status(&settings, &state.relay_dir), Ok(RelayStatus::On { .. }))
             {
                 let _ = claude_relay::install(&settings, &state.relay_dir, &exe);
@@ -574,6 +698,8 @@ pub fn run() {
             std::thread::spawn(move || watch(handle));
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_loop(handle));
+            let handle = app.handle().clone();
+            std::thread::spawn(move || reset_loop(handle));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -588,6 +714,10 @@ pub fn run() {
             save_plan,
             delete_plan,
             set_thresholds,
+            set_reset_alerts,
+            bar_widget_status,
+            bar_widget_install,
+            bar_widget_remove,
             accounts_report,
             add_account,
             remove_account,

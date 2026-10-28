@@ -98,6 +98,8 @@ export interface Limits {
   windows: LimitWindow[]
   plans: PlanValue[]
   thresholds: number[]
+  /** Notify when a window that raised an alert resets. */
+  reset_alerts: boolean
 }
 
 export type Relay = { settings: string } & (
@@ -153,6 +155,12 @@ export interface CsvInspect {
   rows: number
 }
 
+/** The Omarchy bar widget. */
+export interface BarWidget {
+  available: boolean
+  installed: boolean
+}
+
 export interface Status {
   scanning: boolean
   last_scan: number | null
@@ -174,6 +182,10 @@ export const limits = () => invoke<Limits>('limits')
 export const savePlan = (plan: Plan) => invoke<number>('save_plan', { plan })
 export const deletePlan = (id: number) => invoke<void>('delete_plan', { id })
 export const setThresholds = (thresholds: number[]) => invoke<void>('set_thresholds', { thresholds })
+export const setResetAlerts = (on: boolean) => invoke<void>('set_reset_alerts', { on })
+export const barWidgetStatus = () => invoke<BarWidget>('bar_widget_status')
+export const barWidgetInstall = () => invoke<BarWidget>('bar_widget_install')
+export const barWidgetRemove = () => invoke<BarWidget>('bar_widget_remove')
 export const relayStatus = () => invoke<Relay>('relay_status')
 export const relayInstall = () => invoke<Relay>('relay_install')
 export const relayUninstall = () => invoke<Relay>('relay_uninstall')

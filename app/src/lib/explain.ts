@@ -138,6 +138,11 @@ export const EXPLAIN = {
     what: 'For providers with no usage API, such as Gemini, TypeSafe or Qwen Cloud: download a usage or billing CSV from their console and choose which column holds the date, model, tokens and cost.',
     why: 'Importing a newer file replaces the days it covers, so overlapping exports never count twice.',
   },
+  bar: {
+    title: 'Show in your bar',
+    what: "A small ring in your desktop's status bar shows how full your fullest usage window is. Click it for every window, its reset time and today's cost.",
+    why: 'You see a limit coming without opening anything. The bar reads the same data as this window, so Gaṇanā needs to keep running (closing the window keeps it in the tray).',
+  },
 } satisfies Record<string, Explanation>
 
 export type ExplainKey = keyof typeof EXPLAIN

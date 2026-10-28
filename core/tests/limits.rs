@@ -264,3 +264,88 @@ fn plan_value_counts_only_its_app_in_the_period() {
     h.store.delete_plan(id).unwrap();
     assert!(h.store.plans().unwrap().is_empty());
 }
+
+#[test]
+fn bar_names_the_fullest_window_and_today() {
+    let h = Home::new();
+    let now = Local.timestamp_opt(NOW_S, 0).unwrap();
+    let seen = NOW_MS - MIN_MS;
+    let snaps = [
+        snap(300, NOW_S + 3600, 92.0, seen),
+        snap(10080, NOW_S + 3 * 86_400, 40.0, seen),
+        LimitSnapshot {
+            meter: "codex".into(),
+            provider: "openai".into(),
+            ..snap(300, NOW_S - 600, 70.0, seen - 3_600_000)
+        },
+    ];
+    let early = Local.from_local_datetime(&now.date_naive().and_hms_opt(0, 1, 0).unwrap()).unwrap().timestamp_millis();
+    let event = |key: &str, model: &str| UsageEvent {
+        key: key.into(),
+        source: "claude-code".into(),
+        provider: "anthropic".into(),
+        model: model.into(),
+        project: None,
+        session: None,
+        ts: early,
+        tokens: Tokens { input: 1_000_000, ..Tokens::default() },
+        reported_cost: None,
+    };
+    h.store
+        .commit("test", &Default::default(), &[event("a", "claude-sonnet-4-5"), event("b", "mystery-router")], &snaps)
+        .unwrap();
+    let id = h.store.add_account("openrouter", "openrouter", "OpenRouter", Some("abcd")).unwrap();
+    let batch = ganana_core::accounts::Batch {
+        from: "2027-01-01".into(),
+        to: "2027-01-01".into(),
+        usage: vec![],
+        costs: vec![],
+        credit: Some((20.0, 19.5)),
+    };
+    h.store.save_account_batch(id, &batch, NOW_MS).unwrap();
+
+    let b = ganana_core::bar::bar(&h.store, &Catalog::load(&h.store).unwrap(), now).unwrap();
+    assert_eq!(b.level, ganana_core::bar::Level::Critical);
+    assert_eq!((b.text.as_str(), b.percentage), ("Claude 92%", Some(92)));
+    assert_eq!(b.windows.len(), 2, "the codex window has reset");
+    assert_eq!(b.windows[0].name, "Claude 5-hour");
+    assert!(b.windows[0].line.contains("92% used, resets"), "{}", b.windows[0].line);
+    assert!(b.today_cost > 0.0);
+    assert_eq!((b.today_tokens, b.today_unpriced_tokens), (2_000_000, 1_000_000));
+    assert!(b.tooltip.contains("OpenRouter credit is low: $0.50 left."), "{}", b.tooltip);
+
+    let waybar = ganana_core::bar::waybar(&b);
+    assert_eq!((waybar["class"].as_str(), waybar["percentage"].as_u64()), (Some("critical"), Some(92)));
+}
+
+#[test]
+fn reset_notices_are_opt_in_and_follow_an_alert() {
+    let h = Home::new();
+    let resets = NOW_S - 600;
+    let ws =
+        windows(&[snap(300, resets, 95.0, NOW_MS - 3_600_000), snap(10080, resets, 50.0, NOW_MS - 3_600_000)], NOW_MS);
+    assert!(ws.iter().all(|w| w.reset_passed));
+    h.store.claim_alert("claude", 300, resets, 90).unwrap();
+
+    assert!(limits::new_resets(&h.store, &ws, NOW_S).unwrap().is_empty(), "off by default");
+    h.store.set_setting(limits::RESET_ALERTS, "on").unwrap();
+    let due = limits::new_resets(&h.store, &ws, NOW_S).unwrap();
+    assert_eq!(due.iter().map(|w| w.window_minutes).collect::<Vec<_>>(), vec![300], "only the warned window");
+    assert!(limits::new_resets(&h.store, &ws, NOW_S).unwrap().is_empty(), "once");
+
+    // A warned window that reset hours ago is old news.
+    let old = NOW_S - 7 * 3600;
+    h.store.claim_alert("claude", 300, old, 90).unwrap();
+    let ws = windows(&[snap(300, old, 95.0, NOW_MS - 8 * 3_600_000)], NOW_MS);
+    assert!(limits::new_resets(&h.store, &ws, NOW_S).unwrap().is_empty(), "not long after");
+}
+
+#[test]
+fn durations_read_plainly() {
+    assert_eq!(limits::duration(59 * 60), "59 min");
+    assert_eq!(limits::duration(2 * 3600 + 14 * 60), "2 h 14 min");
+    assert_eq!(limits::duration(3 * 3600), "3 h");
+    assert_eq!(limits::duration(86_400 + 60), "1 day");
+    assert_eq!(limits::duration(3 * 86_400 + 4 * 3600), "3 days 4 h");
+    assert_eq!(limits::duration(-5), "0 min");
+}

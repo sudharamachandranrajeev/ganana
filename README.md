@@ -52,6 +52,36 @@ change the levels). Closing the window keeps Gaṇanā running in the tray so
 alerts still arrive; use "Quit" in the tray menu to stop it. Starting it again
 shows the running window.
 
+You can also ask for a notification when a window that warned you resets, so
+you know you can go on. It is off by default.
+
+## Status bar
+
+`ganana bar` prints a short summary of the fullest usage window, its reset
+time and today's cost, read from Gaṇanā's database. Gaṇanā must have run at
+least once.
+
+```sh
+ganana bar                   # JSON with every live window (default)
+ganana bar --format plain    # one line, like "Claude 62%"
+ganana bar --format waybar   # text, tooltip, class (ok/warning/critical)
+```
+
+- **Omarchy**: "Add to bar" on the Plans & limits page installs the
+  `ganana.usage` widget (source in `integrations/omarchy/`) and adds it to the
+  bar. The ring fills with the fullest window; click it for every window and
+  its reset time, middle-click to open Gaṇanā. "Remove from bar" takes it out.
+- **Waybar**:
+
+  ```json
+  "custom/ganana": {
+    "exec": "ganana bar --format waybar",
+    "return-type": "json",
+    "interval": 30,
+    "on-click": "ganana"
+  }
+  ```
+
 ## Provider accounts
 
 The Accounts page shows what providers actually billed, next to the estimate
@@ -97,14 +127,15 @@ cargo run --release -p ganana-core --example scan -- /tmp/ganana-test.db 30
 
 - `core/`: Rust library: log parsers, SQLite store, price catalogue, reports.
 - `app/`: Tauri 2 shell (`src-tauri/`) and Svelte 5 dashboard (`src/`).
+- `integrations/omarchy/`: the Omarchy bar widget.
 
 ## Roadmap
 
 1. Local logs, prices and the overview dashboard.
 2. Plan limits: Claude Pro/Max and ChatGPT usage windows, with warnings.
-3. Provider accounts: Anthropic, OpenAI and OpenRouter reports, CSV import (this release).
-4. A status-bar widget.
-5. Optional sync between your own machines.
+3. Provider accounts: Anthropic, OpenAI and OpenRouter reports, CSV import.
+4. Status bar: `ganana bar`, an Omarchy widget, reset notifications (this release).
+5. Windows build and sync between your own machines.
 
 ## License
 

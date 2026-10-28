@@ -1270,6 +1270,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "dirs",
  "ganana-core",
  "keyring-core",
  "notify-debouncer-mini",

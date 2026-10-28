@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "ganana.usage",
+  "name": "Gaṇanā",
+  "version": "0.1.0",
+  "author": "ganana",
+  "description": "Your AI plan limits in the bar: a ring with the fullest usage window, and a panel with every window, its reset time, your pace and today's cost",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Gaṇanā",
+    "description": "AI usage limits and today's cost, from the Gaṇanā app",
+    "category": "System",
+    "aliases": [
+      "ganana",
+      "ai",
+      "usage",
+      "limits"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "command": "ganana",
+      "label": "percent"
+    },
+    "schema": [
+      {
+        "key": "command",
+        "type": "string",
+        "label": "Gaṇanā program",
+        "defaultValue": "ganana",
+        "description": "Path to the Gaṇanā program. The app's Add to bar button fills this in."
+      },
+      {
+        "key": "label",
+        "type": "enum",
+        "label": "Bar label",
+        "options": [
+          "percent",
+          "cost",
+          "none"
+        ],
+        "defaultValue": "percent",
+        "description": "The fullest window's percentage, today's cost, or just the ring."
+      }
+    ]
+  }
+}
