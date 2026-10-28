@@ -1,0 +1,18 @@
+[package]
+name = "ganana-core"
+version = "0.1.0"
+description = "Reads AI tool usage logs into one SQLite store and prices them"
+license = "MIT"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3"
