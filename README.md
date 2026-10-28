@@ -1,5 +1,7 @@
 # Gaṇanā (गणना)
 
+<a href="https://github.com/sudharamachandranrajeev/brahma"><img src="https://img.shields.io/badge/part%20of-Brahma-8a5cf6" alt="Part of Brahma"></a>
+
 Your AI usage, explained. Gaṇanā is a desktop app that reads the local logs of
 your AI coding tools and shows how many tokens you used, what that would cost
 at public API prices, and where it went: by day, model, project and app. Every
