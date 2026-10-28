@@ -15,6 +15,7 @@
   --axis: #c3c2b7;
   --accent: #2a78d6;
   --accent-soft: rgba(42, 120, 214, 0.12);
+  --on-accent: #ffffff;
   --good: #006300;
   --warning-ink: #8a5a00;
   --glow-1: rgba(57, 135, 229, 0.22);
@@ -36,6 +37,11 @@
   --kind-2: #3987e5;
   --kind-3: #1c5cab;
   --kind-4: #0d366b;
+
+  /* Status fills, the same in both themes. Always paired with an icon and a
+     label in text colour, never colour alone. */
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
 
   --radius: 20px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -61,6 +67,7 @@
     --axis: #383835;
     --accent: #5598e7;
     --accent-soft: rgba(85, 152, 231, 0.16);
+  --on-accent: #0d0d0d;
     --good: #0ca30c;
     --warning-ink: #fab219;
     --glow-1: rgba(57, 135, 229, 0.2);
@@ -96,6 +103,7 @@
   --axis: #383835;
   --accent: #5598e7;
   --accent-soft: rgba(85, 152, 231, 0.16);
+  --on-accent: #0d0d0d;
   --good: #0ca30c;
   --warning-ink: #fab219;
   --glow-1: rgba(57, 135, 229, 0.2);

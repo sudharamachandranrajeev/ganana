@@ -10,11 +10,7 @@ use crate::db::Cursor;
 /// Size and modification time (Unix ms) of a file.
 pub fn stat(path: &Path) -> std::io::Result<(u64, i64)> {
     let meta = std::fs::metadata(path)?;
-    let mtime = meta
-        .modified()?
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+    let mtime = meta.modified()?.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
     Ok((meta.len(), mtime))
 }
 
@@ -24,11 +20,7 @@ pub fn stat(path: &Path) -> std::io::Result<(u64, i64)> {
 /// line without a newline is still being written, so it is left for the next
 /// read. A file smaller than the old offset was replaced: callers pass
 /// `prev = None` for it (see [`replaced`]).
-pub fn read_new(
-    path: &Path,
-    prev: Option<&Cursor>,
-    mut on_line: impl FnMut(&str),
-) -> std::io::Result<Option<Cursor>> {
+pub fn read_new(path: &Path, prev: Option<&Cursor>, mut on_line: impl FnMut(&str)) -> std::io::Result<Option<Cursor>> {
     let (size, mtime) = stat(path)?;
     let mut offset = prev.map_or(0, |c| c.offset);
     if prev.is_some_and(|c| c.size == size && c.mtime == mtime) {

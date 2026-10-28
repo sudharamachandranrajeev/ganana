@@ -18,9 +18,8 @@ pub const SOURCE_URL: &str = "https://models.dev/api.json";
 
 /// Providers kept from the catalog, in lookup order for models whose
 /// provider is unknown.
-const PROVIDERS: &[&str] = &[
-    "anthropic", "openai", "google", "alibaba", "deepseek", "xai", "mistral", "moonshotai", "zai",
-];
+const PROVIDERS: &[&str] =
+    &["anthropic", "openai", "google", "alibaba", "deepseek", "xai", "mistral", "moonshotai", "zai"];
 
 const BUNDLED: &str = include_str!("../data/prices.json");
 

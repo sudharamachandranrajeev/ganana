@@ -60,3 +60,37 @@ const NAMES: Record<string, string> = {
   opencode: 'opencode',
 }
 export const nameOf = (id: string) => NAMES[id] ?? id
+
+/** "2 h 14 min", "35 min", "3 days 4 h". */
+export function duration(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60_000))
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return min % 60 ? `${h} h ${min % 60} min` : `${h} h`
+  const d = Math.floor(h / 24)
+  return `${d} day${d > 1 ? 's' : ''}${h % 24 ? ` ${h % 24} h` : ''}`
+}
+
+/** "16:40" today, "Sat 16:40" otherwise or when `day` is set. */
+export function clock(ms: number, now = Date.now(), day = false): string {
+  const d = new Date(ms)
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return !day && d.toDateString() === new Date(now).toDateString()
+    ? time
+    : `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+}
+
+export function windowName(minutes: number): string {
+  if (minutes === 300) return '5-hour window'
+  if (minutes === 10080) return 'Weekly window'
+  return minutes % 60 === 0 ? `${minutes / 60}-hour window` : `${minutes}-minute window`
+}
+
+const METERS: Record<string, string> = { claude: 'Claude Pro/Max', codex: 'ChatGPT (Codex)' }
+export const meterName = (meter: string) => METERS[meter] ?? meter
+
+/** 1st, 2nd, 3rd, 11th, 22nd... */
+export function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${s}`
+}

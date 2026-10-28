@@ -7,6 +7,9 @@
 //!
 //! OpenAI-style counts: `input_tokens` includes cached input, and
 //! `output_tokens` includes reasoning.
+//!
+//! `token_count` events also carry the ChatGPT plan's limits: a `primary`
+//! (5-hour) and `secondary` (weekly) window with the percentage used.
 
 use std::path::Path;
 
@@ -14,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::LineParser;
-use crate::model::{Tokens, UsageEvent, parse_ts, project_name};
+use crate::model::{LimitSnapshot, Tokens, UsageEvent, parse_ts, project_name};
 
 /// Context that earlier lines set and later usage lines need.
 #[derive(Serialize, Deserialize, Default)]
@@ -51,6 +54,28 @@ impl Usage {
 pub struct Parser {
     state: State,
     file_stem: String,
+    limits: Vec<LimitSnapshot>,
+}
+
+/// Readings from one `rate_limits` object. `limit_id` names the meter;
+/// meters without windows (such as `premium`) give nothing.
+fn limits(rate_limits: &Value, seen_at: i64, out: &mut Vec<LimitSnapshot>) {
+    let meter = rate_limits["limit_id"].as_str().unwrap_or("codex");
+    for w in [&rate_limits["primary"], &rate_limits["secondary"]] {
+        let (Some(used_pct), Some(window_minutes), Some(resets_at)) =
+            (w["used_percent"].as_f64(), w["window_minutes"].as_i64(), w["resets_at"].as_i64())
+        else {
+            continue;
+        };
+        out.push(LimitSnapshot {
+            meter: meter.to_string(),
+            provider: "openai".into(),
+            window_minutes,
+            resets_at,
+            used_pct,
+            seen_at,
+        });
+    }
 }
 
 impl LineParser for Parser {
@@ -58,11 +83,16 @@ impl LineParser for Parser {
         Self {
             state: state.and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default(),
             file_stem: path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+            limits: Vec::new(),
         }
     }
 
     fn state(&self) -> Option<String> {
         serde_json::to_string(&self.state).ok()
+    }
+
+    fn take_limits(&mut self) -> Vec<LimitSnapshot> {
+        std::mem::take(&mut self.limits)
     }
 
     fn line(&mut self, line: &str, out: &mut Vec<UsageEvent>) {
@@ -89,6 +119,9 @@ impl LineParser for Parser {
                 (usage, total)
             }
             ("event_msg", Some("token_count")) => {
+                if let Some(ts) = v["timestamp"].as_str().and_then(parse_ts) {
+                    limits(&payload["rate_limits"], ts, &mut self.limits);
+                }
                 let info = &payload["info"];
                 let usage: Usage = serde_json::from_value(info["last_token_usage"].clone()).unwrap_or_default();
                 let total = info["total_token_usage"]["total_tokens"].as_i64();

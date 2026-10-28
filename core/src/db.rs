@@ -7,9 +7,10 @@ use std::path::Path;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::model::{Tokens, UsageEvent};
+use crate::model::{LimitSnapshot, Plan, Tokens, UsageEvent};
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE usage_event (
     key TEXT PRIMARY KEY,
     source TEXT NOT NULL,
@@ -47,7 +48,45 @@ CREATE TABLE price_catalog (
     fetched_at INTEGER NOT NULL,
     json TEXT NOT NULL
 );
-"#];
+"#,
+    r#"
+-- Plan limit readings. Only changes are kept: a repeated value keeps the
+-- time it was first seen.
+CREATE TABLE limit_snapshot (
+    meter TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    resets_at INTEGER NOT NULL,
+    used_pct REAL NOT NULL,
+    seen_at INTEGER NOT NULL,
+    PRIMARY KEY (meter, window_minutes, resets_at, used_pct)
+) WITHOUT ROWID;
+CREATE INDEX limit_snapshot_seen ON limit_snapshot(seen_at);
+-- Subscriptions the user pays for, entered by hand.
+CREATE TABLE plan (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    name TEXT NOT NULL,
+    monthly_usd REAL NOT NULL,
+    renews_day INTEGER NOT NULL
+);
+CREATE TABLE setting (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- Limit alerts already shown, so a restart does not repeat them.
+CREATE TABLE alert_sent (
+    meter TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    resets_at INTEGER NOT NULL,
+    threshold INTEGER NOT NULL,
+    PRIMARY KEY (meter, window_minutes, resets_at, threshold)
+) WITHOUT ROWID;
+-- Read Codex logs again for the limit readings older versions skipped.
+-- Events keep their keys, so nothing is counted twice.
+DELETE FROM source_cursor WHERE path LIKE '%rollout-%.jsonl';
+"#,
+];
 
 /// Read position in one log. `size` and `mtime` detect a replaced or
 /// rewritten file.
@@ -91,26 +130,22 @@ impl Store {
     pub fn cursor(&self, path: &str) -> Result<Option<Cursor>> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT offset, size, mtime, state FROM source_cursor WHERE path = ?1",
-                [path],
-                |r| {
-                    Ok(Cursor {
-                        offset: r.get::<_, i64>(0)? as u64,
-                        size: r.get::<_, i64>(1)? as u64,
-                        mtime: r.get(2)?,
-                        state: r.get(3)?,
-                    })
-                },
-            )
+            .query_row("SELECT offset, size, mtime, state FROM source_cursor WHERE path = ?1", [path], |r| {
+                Ok(Cursor {
+                    offset: r.get::<_, i64>(0)? as u64,
+                    size: r.get::<_, i64>(1)? as u64,
+                    mtime: r.get(2)?,
+                    state: r.get(3)?,
+                })
+            })
             .optional()?)
     }
 
-    /// Saves a batch of events and the new read position in one transaction,
-    /// so a crash never leaves events counted without the cursor (or the
-    /// reverse). Events with an existing key are replaced, not added, and
-    /// keep their earliest time.
-    pub fn commit(&self, path: &str, cursor: &Cursor, events: &[UsageEvent]) -> Result<()> {
+    /// Saves a batch of events and limit readings with the new read position
+    /// in one transaction, so a crash never leaves events counted without the
+    /// cursor (or the reverse). Events with an existing key are replaced, not
+    /// added, and keep their earliest time.
+    pub fn commit(&self, path: &str, cursor: &Cursor, events: &[UsageEvent], limits: &[LimitSnapshot]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         {
             let mut insert = tx.prepare_cached(
@@ -131,10 +166,29 @@ impl Store {
             for e in events {
                 let t = &e.tokens;
                 insert.execute(params![
-                    e.key, e.source, e.provider, e.model, e.project, e.session, e.ts,
-                    t.input, t.output, t.cache_read, t.cache_write, t.cache_write_1h, t.reasoning,
+                    e.key,
+                    e.source,
+                    e.provider,
+                    e.model,
+                    e.project,
+                    e.session,
+                    e.ts,
+                    t.input,
+                    t.output,
+                    t.cache_read,
+                    t.cache_write,
+                    t.cache_write_1h,
+                    t.reasoning,
                     e.reported_cost,
                 ])?;
+            }
+            let mut limit = tx.prepare_cached(
+                "INSERT INTO limit_snapshot (meter, provider, window_minutes, resets_at, used_pct, seen_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT DO UPDATE SET seen_at = min(limit_snapshot.seen_at, excluded.seen_at)",
+            )?;
+            for l in limits {
+                limit.execute(params![l.meter, l.provider, l.window_minutes, l.resets_at, l.used_pct, l.seen_at])?;
             }
             tx.execute(
                 "INSERT INTO source_cursor (path, offset, size, mtime, state) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -204,9 +258,7 @@ impl Store {
     pub fn catalog_json(&self) -> Result<Option<(i64, String)>> {
         Ok(self
             .conn
-            .query_row("SELECT fetched_at, json FROM price_catalog WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row("SELECT fetched_at, json FROM price_catalog WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?)
     }
 
@@ -217,5 +269,91 @@ impl Store {
             params![fetched_at, json],
         )?;
         Ok(())
+    }
+
+    /// Limit readings first seen at or after `since_ms`, oldest first.
+    pub fn limits_since(&self, since_ms: i64) -> Result<Vec<LimitSnapshot>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT meter, provider, window_minutes, resets_at, used_pct, seen_at
+             FROM limit_snapshot WHERE seen_at >= ?1 ORDER BY seen_at",
+        )?;
+        let rows = stmt.query_map([since_ms], |r| {
+            Ok(LimitSnapshot {
+                meter: r.get(0)?,
+                provider: r.get(1)?,
+                window_minutes: r.get(2)?,
+                resets_at: r.get(3)?,
+                used_pct: r.get(4)?,
+                seen_at: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn plans(&self) -> Result<Vec<Plan>> {
+        let mut stmt =
+            self.conn.prepare_cached("SELECT id, provider, name, monthly_usd, renews_day FROM plan ORDER BY id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Plan {
+                id: r.get(0)?,
+                provider: r.get(1)?,
+                name: r.get(2)?,
+                monthly_usd: r.get(3)?,
+                renews_day: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds a plan (`id` 0) or updates one; returns its id.
+    pub fn save_plan(&self, p: &Plan) -> Result<i64> {
+        if p.id == 0 {
+            self.conn.execute(
+                "INSERT INTO plan (provider, name, monthly_usd, renews_day) VALUES (?1, ?2, ?3, ?4)",
+                params![p.provider, p.name, p.monthly_usd, p.renews_day],
+            )?;
+            return Ok(self.conn.last_insert_rowid());
+        }
+        self.conn.execute(
+            "UPDATE plan SET provider = ?2, name = ?3, monthly_usd = ?4, renews_day = ?5 WHERE id = ?1",
+            params![p.id, p.provider, p.name, p.monthly_usd, p.renews_day],
+        )?;
+        Ok(p.id)
+    }
+
+    pub fn delete_plan(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM plan WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row("SELECT value FROM setting WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO setting (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Records an alert for a window; false if it was already recorded. A
+    /// window's reset time drifts a little between readings, so any reset
+    /// within ten minutes counts as the same window.
+    pub fn claim_alert(&self, meter: &str, window_minutes: i64, resets_at: i64, threshold: i64) -> Result<bool> {
+        let seen: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM alert_sent WHERE meter = ?1 AND window_minutes = ?2
+                AND abs(resets_at - ?3) < 600 AND threshold = ?4)",
+            params![meter, window_minutes, resets_at, threshold],
+            |r| r.get(0),
+        )?;
+        if !seen {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO alert_sent (meter, window_minutes, resets_at, threshold) VALUES (?1, ?2, ?3, ?4)",
+                params![meter, window_minutes, resets_at, threshold],
+            )?;
+        }
+        Ok(!seen)
     }
 }

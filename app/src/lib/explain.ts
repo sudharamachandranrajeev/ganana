@@ -89,6 +89,33 @@ export const EXPLAIN = {
     what: "Some model names are not in the public price list. Usually that's a router or a nickname that hides which real model ran.",
     why: 'Their tokens are counted, but their cost is left out of every total until you say which real model each one is. That then prices all past and future calls.',
   },
+  limits: {
+    title: 'Usage limits',
+    what: 'Subscriptions such as Claude Pro/Max and ChatGPT Plus/Pro cap how much you can use in a window of time: a 5-hour window and a weekly one. The bar shows how much of each window is used, as the provider itself reports it.',
+    why: 'When a window is full you have to wait for it to reset. Knowing where you stand lets you pace big jobs or switch to a lighter model in time.',
+    like: 'Like a phone data allowance that refills on a schedule.',
+  },
+  history: {
+    title: 'Window history',
+    what: 'The line shows how the used percentage grew in the current window. The dashed line continues it at your recent pace, up to the time it would be full or the window resets.',
+    why: 'A steep line means heavy use right now. If the dashed line reaches the top before the reset, you will run out at this pace.',
+  },
+  plans: {
+    title: 'Your plans',
+    what: 'The subscriptions you pay for, and what the usage they covered this billing period would have cost at public API prices.',
+    why: 'It shows whether a plan is worth its price for how you work. Only usage Gaṇanā can see is counted: chats in the web or phone apps leave no logs on this computer.',
+    like: "If the API price is far above what you pay, the plan is a bargain. If it's below, paying per use could be cheaper.",
+  },
+  alerts: {
+    title: 'Alerts',
+    what: 'A desktop notification when a usage window passes one of these levels, once per window.',
+    why: 'You hear about a limit before you hit it, not when work stops. Alerts need Gaṇanā running; closing the window keeps it in the tray.',
+  },
+  connect: {
+    title: 'Connect Claude Pro/Max',
+    what: "Claude Code shares your plan's usage limits only with its status line, the line under its input box. Gaṇanā can be that status line: it keeps only the two limit numbers and shows them in Claude Code too.",
+    why: 'Without it, Claude limits are not visible to any app. The change is one setting in Claude Code, backed up first, and undone with one click. A status line you already have keeps working.',
+  },
 } satisfies Record<string, Explanation>
 
 export type ExplainKey = keyof typeof EXPLAIN

@@ -28,7 +28,14 @@ fn close(a: f64, b: f64) -> bool {
 #[test]
 fn prices_every_token_kind() {
     let c = Catalog::from_json(TABLE).unwrap();
-    let t = Tokens { input: 1_000_000, output: 1_000_000, cache_read: 1_000_000, cache_write: 1_000_000, cache_write_1h: 1_000_000, reasoning: 0 };
+    let t = Tokens {
+        input: 1_000_000,
+        output: 1_000_000,
+        cache_read: 1_000_000,
+        cache_write: 1_000_000,
+        cache_write_1h: 1_000_000,
+        reasoning: 0,
+    };
     // 5 + 25 + 0.5 + 6.25 + 1h writes at 2x input (10)
     assert!(close(c.cost(&event("anthropic", "claude-opus-9", t)).unwrap(), 46.75));
 }

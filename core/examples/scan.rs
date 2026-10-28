@@ -41,5 +41,18 @@ fn main() -> anyhow::Result<()> {
     for u in &o.unpriced {
         println!("  unpriced {}/{}: {} tokens", u.provider, u.model, u.total_tokens);
     }
+    let l = ganana_core::limits(&store, &Catalog::load(&store)?, chrono::Local::now())?;
+    for w in &l.windows {
+        println!(
+            "  limit {} {}m: {:.0}% resets {} rate {:?}/h full {:?} ({} readings)",
+            w.meter,
+            w.window_minutes,
+            w.used_pct,
+            w.resets_at,
+            w.rate_per_hour.map(|r| (r * 10.0).round() / 10.0),
+            w.full_at,
+            w.history.len()
+        );
+    }
     Ok(())
 }

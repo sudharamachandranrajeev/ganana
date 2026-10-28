@@ -55,6 +55,35 @@ pub struct UsageEvent {
     pub reported_cost: Option<f64>,
 }
 
+/// One reading of a plan's usage limit, such as Claude's 5-hour window at
+/// 23%. Only changes are stored, so the rows form the window's history.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LimitSnapshot {
+    /// The limit's owner and name, such as `claude` or `codex`.
+    pub meter: String,
+    pub provider: String,
+    /// Window length: 300 for the 5-hour window, 10080 for the weekly one.
+    pub window_minutes: i64,
+    /// Unix seconds when the window resets. Drifts by a few seconds between
+    /// readings of the same window.
+    pub resets_at: i64,
+    pub used_pct: f64,
+    /// Unix milliseconds when this value was first seen.
+    pub seen_at: i64,
+}
+
+/// A subscription the user pays for, entered by hand.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct Plan {
+    /// 0 for a plan not saved yet.
+    pub id: i64,
+    pub provider: String,
+    pub name: String,
+    pub monthly_usd: f64,
+    /// Day of the month the plan renews, 1 to 31.
+    pub renews_day: u32,
+}
+
 /// Last path component of a working directory, used as the project name.
 pub fn project_name(cwd: &str) -> Option<String> {
     let name = cwd.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next()?;

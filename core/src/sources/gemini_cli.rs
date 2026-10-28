@@ -46,7 +46,7 @@ pub fn scan(store: &Store, path: &Path) -> Result<Option<usize>> {
         return Ok(None);
     }
     let events = parse(&std::fs::read_to_string(path)?, project_of(path));
-    store.commit(&key, &Cursor { offset: size, size, mtime, state: None }, &events)?;
+    store.commit(&key, &Cursor { offset: size, size, mtime, state: None }, &events, &[])?;
     Ok(Some(events.len()))
 }
 

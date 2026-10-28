@@ -97,6 +97,6 @@ pub fn scan(store: &Store, path: &Path) -> Result<Option<usize>> {
         return Ok(None);
     }
     let (size, mtime) = stat(path)?;
-    store.commit(&key, &Cursor { offset: newest as u64, size, mtime, state: None }, &events)?;
+    store.commit(&key, &Cursor { offset: newest as u64, size, mtime, state: None }, &events, &[])?;
     Ok(Some(events.len()))
 }

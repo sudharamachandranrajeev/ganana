@@ -37,7 +37,10 @@ impl Home {
     }
 
     fn scan(&self) -> usize {
-        let report = scan_all(&self.store, &Roots { home: self.dir.path().join("home") });
+        let report = scan_all(
+            &self.store,
+            &Roots { home: self.dir.path().join("home"), relay_dir: Some(self.dir.path().join("relay")) },
+        );
         assert!(report.errors.is_empty(), "{:?}", report.errors);
         report.events
     }

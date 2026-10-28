@@ -19,4 +19,6 @@ ganana-core = { version = "0.1.0", path = "../../core" }
 notify-debouncer-mini = "0.7"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-tauri = { version = "2.12.5", features = [] }
+tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"

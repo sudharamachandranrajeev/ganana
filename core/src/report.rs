@@ -24,7 +24,7 @@ pub struct Totals {
 }
 
 impl Totals {
-    fn add(&mut self, e: &UsageEvent, cost: Option<f64>, savings: f64) {
+    pub(crate) fn add(&mut self, e: &UsageEvent, cost: Option<f64>, savings: f64) {
         self.tokens.add(&e.tokens);
         self.total_tokens += e.tokens.total();
         self.calls += 1;
@@ -133,7 +133,12 @@ pub fn overview(store: &Store, catalog: &Catalog, days: u32, now: DateTime<Local
     let mut unpriced: Vec<Unpriced> = models
         .iter()
         .filter(|(_, t)| t.unpriced_tokens > 0)
-        .map(|((p, m), t)| Unpriced { provider: p.clone(), model: m.clone(), total_tokens: t.unpriced_tokens, calls: t.calls })
+        .map(|((p, m), t)| Unpriced {
+            provider: p.clone(),
+            model: m.clone(),
+            total_tokens: t.unpriced_tokens,
+            calls: t.calls,
+        })
         .collect();
     unpriced.sort_by_key(|u| std::cmp::Reverse(u.total_tokens));
 
@@ -160,13 +165,11 @@ fn slice(name: String, provider: Option<String>, totals: Totals) -> Slice {
 /// Biggest first: by cost, then by tokens.
 fn ranked(slices: impl Iterator<Item = Slice>) -> Vec<Slice> {
     let mut v: Vec<Slice> = slices.collect();
-    v.sort_by(|a, b| {
-        b.totals.cost.total_cmp(&a.totals.cost).then(b.totals.total_tokens.cmp(&a.totals.total_tokens))
-    });
+    v.sort_by(|a, b| b.totals.cost.total_cmp(&a.totals.cost).then(b.totals.total_tokens.cmp(&a.totals.total_tokens)));
     v
 }
 
-fn start_of(date: NaiveDate) -> i64 {
+pub(crate) fn start_of(date: NaiveDate) -> i64 {
     let midnight = date.and_hms_opt(0, 0, 0).expect("midnight exists");
     Local
         .from_local_datetime(&midnight)

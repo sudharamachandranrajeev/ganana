@@ -1,6 +1,7 @@
 //! Readers for the usage logs AI tools keep on this machine.
 
 mod claude_code;
+mod claude_limits;
 mod codex;
 mod gemini_cli;
 mod opencode;
@@ -13,19 +14,22 @@ use walkdir::WalkDir;
 
 use crate::db::Store;
 use crate::jsonl;
-use crate::model::UsageEvent;
+use crate::model::{LimitSnapshot, UsageEvent};
 
 /// Where the tools keep their logs. Tests point `home` at a fixture folder.
 #[derive(Debug, Clone)]
 pub struct Roots {
     pub home: PathBuf,
+    /// Where the Claude status line relay writes limit readings; see
+    /// `crate::claude_relay`. Set by the app.
+    pub relay_dir: Option<PathBuf>,
 }
 
 impl Roots {
     pub fn from_env() -> Option<Self> {
         std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(|h| Self { home: h.into() })
+            .map(|h| Self { home: h.into(), relay_dir: None })
     }
 
     fn claude_dirs(&self) -> Vec<PathBuf> {
@@ -56,6 +60,7 @@ impl Roots {
     pub fn watch_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = self.claude_dirs();
         dirs.extend([self.codex_dir(), self.gemini_dir(), self.qwen_dir()]);
+        dirs.extend(self.relay_dir.clone());
         if let Some(dir) = self.opencode_db().parent() {
             dirs.push(dir.to_path_buf());
         }
@@ -70,6 +75,8 @@ impl Roots {
 pub struct ScanReport {
     pub files_read: usize,
     pub events: usize,
+    /// Plan limit readings read (most repeat earlier ones).
+    pub limits: usize,
     pub errors: Vec<String>,
 }
 
@@ -90,6 +97,12 @@ pub fn scan_all(store: &Store, roots: &Roots) -> ScanReport {
     for file in files_with_ext(&roots.gemini_dir(), "json") {
         if file.parent().is_some_and(|p| p.ends_with("chats")) {
             note(&mut report, &file, gemini_cli::scan(store, &file));
+        }
+    }
+    if let Some(dir) = &roots.relay_dir {
+        let file = dir.join(crate::claude_relay::LIMITS_FILE);
+        if file.is_file() {
+            scan_jsonl::<claude_limits::Parser>(store, &file, &mut report);
         }
     }
     let oc = roots.opencode_db();
@@ -133,9 +146,14 @@ trait LineParser {
     fn state(&self) -> Option<String> {
         None
     }
+    /// Plan limit readings found since the last call.
+    fn take_limits(&mut self) -> Vec<LimitSnapshot> {
+        Vec::new()
+    }
 }
 
 fn scan_jsonl<P: LineParser>(store: &Store, path: &Path, report: &mut ScanReport) {
+    let mut limits_read = 0;
     let result = (|| {
         let key = path.to_string_lossy();
         let mut prev = store.cursor(&key)?;
@@ -150,8 +168,11 @@ fn scan_jsonl<P: LineParser>(store: &Store, path: &Path, report: &mut ScanReport
             return Ok(None);
         };
         cursor.state = parser.state();
-        store.commit(&key, &cursor, &events)?;
+        let limits = parser.take_limits();
+        store.commit(&key, &cursor, &events, &limits)?;
+        limits_read = limits.len();
         Ok(Some(events.len()))
     })();
+    report.limits += limits_read;
     note(report, path, result);
 }
