@@ -121,7 +121,13 @@ fn install_keeps_and_undo_restores_the_users_status_line() {
     let text = fs::read_to_string(&settings).unwrap();
     let v: Value = serde_json::from_str(&text).unwrap();
     let command = v["statusLine"]["command"].as_str().unwrap();
-    assert_eq!(command, format!(r"'/opt/it'\''s here/ganana' {} '{}'", claude_relay::FLAG, dir.display()));
+    if cfg!(windows) {
+        // Forward slashes and 8.3 names; a path that is not there keeps its spaces.
+        assert!(command.starts_with(&format!("\"/opt/it's here/ganana\" {} ", claude_relay::FLAG)), "{command}");
+        assert!(!command.contains('\\') && !command.ends_with('"'), "{command}");
+    } else {
+        assert_eq!(command, format!(r"'/opt/it'\''s here/ganana' {} '{}'", claude_relay::FLAG, dir.display()));
+    }
     assert_eq!(v["statusLine"]["padding"], 0);
     assert!(text.find("\"model\"").unwrap() < text.find("\"theme\"").unwrap(), "key order kept");
     assert_eq!(
@@ -139,7 +145,8 @@ fn install_keeps_and_undo_restores_the_users_status_line() {
     let moved = PathBuf::from("/new/ganana");
     claude_relay::install(&settings, &dir, &moved).unwrap();
     let v: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
-    assert!(v["statusLine"]["command"].as_str().unwrap().starts_with("'/new/ganana' "), "moved app is repaired");
+    let moved_command = if cfg!(windows) { "/new/ganana " } else { "'/new/ganana' " };
+    assert!(v["statusLine"]["command"].as_str().unwrap().starts_with(moved_command), "moved app is repaired");
 
     claude_relay::uninstall(&settings, &dir).unwrap();
     assert_eq!(fs::read_to_string(&settings).unwrap(), original);
