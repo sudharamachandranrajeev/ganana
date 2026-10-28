@@ -1,5 +1,6 @@
 //! Tauri shell around ganana-core: a background scanner that watches the AI
-//! tools' log folders, limit alerts, a tray icon that keeps it running with
+//! tools' log folders, provider account syncs with keys in the system
+//! keyring, limit and credit alerts, a tray icon that keeps it running with
 //! the window closed, and commands the dashboard calls.
 
 use std::path::{Path, PathBuf};
@@ -8,6 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use chrono::{Local, TimeZone};
+use ganana_core::accounts::{self, Account, AccountsReport, HttpStatus, csv_import};
 use ganana_core::claude_relay::{self, RelayStatus};
 use ganana_core::limits::{self, Alert};
 use ganana_core::{Catalog, Limits, Overview, Plan, Roots, ScanReport, Store};
@@ -20,6 +22,12 @@ use tauri_plugin_notification::NotificationExt;
 
 const PRICE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const DEBOUNCE: Duration = Duration::from_secs(2);
+/// How often provider accounts are read again. Their data lands minutes
+/// after a call, and the APIs ask for at most one poll a minute.
+const ACCOUNT_SYNC: Duration = Duration::from_secs(15 * 60);
+const KEYRING_SERVICE: &str = "ganana";
+/// Largest CSV file accepted for import.
+const CSV_LIMIT: usize = 50 << 20;
 
 struct App {
     db: PathBuf,
@@ -29,6 +37,10 @@ struct App {
     status: Mutex<Status>,
     /// One scan at a time: the watcher and the rescan button share it.
     scan_lock: Mutex<()>,
+    /// One account sync at a time, for the same reason.
+    sync_lock: Mutex<()>,
+    /// Why the system keyring is unavailable, if it is.
+    keyring_error: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -97,6 +109,60 @@ impl App {
         }
     }
 
+    /// Reads every API account again with its stored key, then tells the UI.
+    fn sync_accounts(&self, app: &AppHandle) {
+        let _one_at_a_time = self.sync_lock.lock().unwrap();
+        let Ok(store) = self.store() else { return };
+        for a in store.accounts().unwrap_or_default().iter().filter(|a| a.kind != accounts::CSV) {
+            // A failed sync records its own error on the account.
+            if let Err(e) = self.key(a.id).map(|key| accounts::sync(&store, a, &key, chrono::Utc::now())) {
+                let _ = store.set_account_error(a.id, Some(&e));
+            }
+        }
+        let _ = app.emit("accounts-updated", ());
+        self.credit_alert(app, &store);
+    }
+
+    /// Warns once per top-up when prepaid credit runs low: under a tenth of
+    /// what was bought, or under a dollar.
+    fn credit_alert(&self, app: &AppHandle, store: &Store) {
+        for a in store.accounts().unwrap_or_default() {
+            let (Some(total), Some(used)) = (a.credit_total, a.credit_used) else { continue };
+            let left = total - used;
+            let setting = format!("credit-alert-{}", a.id);
+            let total_text = format!("{total:.2}");
+            if total <= 0.0 || left >= (total * 0.1).max(1.0) {
+                continue;
+            }
+            if store.setting(&setting).ok().flatten().as_deref() == Some(total_text.as_str()) {
+                continue;
+            }
+            let _ = store.set_setting(&setting, &total_text);
+            let _ = app
+                .notification()
+                .builder()
+                .title(format!("{} credit is low", a.name))
+                .body(format!("${:.2} left of ${total:.2}. Top up to keep it running.", left.max(0.0)))
+                .show();
+        }
+    }
+
+    fn key_entry(&self, id: i64) -> CommandResult<keyring_core::Entry> {
+        if let Some(e) = &self.keyring_error {
+            return Err(format!("the system keyring is not available: {e}"));
+        }
+        keyring_core::Entry::new(KEYRING_SERVICE, &format!("account-{id}")).map_err(err)
+    }
+
+    fn key(&self, id: i64) -> CommandResult<String> {
+        self.key_entry(id)?.get_password().map_err(|e| match e {
+            keyring_core::Error::NoEntry => {
+                "the key is missing from the keyring; remove the account and add it again".into()
+            }
+            e => err(e),
+        })
+    }
+
     fn claude_settings(&self) -> CommandResult<PathBuf> {
         let roots = self.roots.as_ref().ok_or("no home folder")?;
         Ok(claude_relay::settings_path(&roots.home))
@@ -145,6 +211,26 @@ fn relay_exe() -> CommandResult<PathBuf> {
     match std::env::var_os("APPIMAGE") {
         Some(p) => Ok(p.into()),
         None => std::env::current_exe().map_err(err),
+    }
+}
+
+/// Uses the platform's secret store for account keys.
+fn init_keyring() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    keyring_core::set_default_store(zbus_secret_service_keyring_store::Store::new().map_err(err)?);
+    #[cfg(windows)]
+    keyring_core::set_default_store(windows_native_keyring_store::Store::new().map_err(err)?);
+    #[cfg(not(any(target_os = "linux", windows)))]
+    return Err("no supported keyring on this system".into());
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+/// Syncs the provider accounts now and then every `ACCOUNT_SYNC`.
+fn sync_loop(app: AppHandle) {
+    loop {
+        app.state::<App>().sync_accounts(&app);
+        std::thread::sleep(ACCOUNT_SYNC);
     }
 }
 
@@ -223,6 +309,132 @@ fn delete_plan(id: i64, state: State<'_, App>) -> CommandResult<()> {
 #[tauri::command]
 fn set_thresholds(thresholds: Vec<i64>, state: State<'_, App>) -> CommandResult<()> {
     state.store().and_then(|s| limits::set_thresholds(&s, &thresholds)).map_err(err)
+}
+
+#[tauri::command]
+async fn accounts_report(days: u32, state: State<'_, App>) -> CommandResult<AccountsReport> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = Store::open(&db)?;
+        accounts::report(&store, &Catalog::load(&store)?, days, chrono::Utc::now())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Connects an API account: keeps the key in the keyring and syncs once. A
+/// refused key is not kept; any other failure keeps the account with its
+/// error, to retry later.
+#[tauri::command]
+async fn add_account(kind: String, name: String, key: String, app: AppHandle) -> CommandResult<Account> {
+    let Some(&(_, provider)) = accounts::API_KINDS.iter().find(|(k, _)| *k == kind) else {
+        return Err(format!("unknown account kind {kind}"));
+    };
+    let key = key.trim().to_string();
+    if key.len() < 8 || key.chars().any(char::is_whitespace) {
+        return Err("paste the whole key, with no spaces".into());
+    }
+    let name = if name.trim().is_empty() { kind.clone() } else { name.trim().to_string() };
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<App>();
+        let store = state.store().map_err(err)?;
+        let hint: String = key.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+        let id = store.add_account(&kind, provider, &name, Some(&hint)).map_err(err)?;
+        let forget = |store: &Store| {
+            let _ = state.key_entry(id).map(|e| e.delete_credential());
+            let _ = store.delete_account(id);
+        };
+        if let Err(e) = state.key_entry(id).and_then(|e| e.set_password(&key).map_err(err)) {
+            forget(&store);
+            return Err(e);
+        }
+        let account = store.account(id).map_err(err)?.ok_or("the account vanished")?;
+        let _one_at_a_time = state.sync_lock.lock().unwrap();
+        if let Err(e) = accounts::sync(&store, &account, &key, chrono::Utc::now())
+            && e.downcast_ref::<HttpStatus>().is_some_and(|s| matches!(s.status, 401 | 403))
+        {
+            forget(&store);
+            return Err(err(e));
+        }
+        let _ = app.emit("accounts-updated", ());
+        store.account(id).map_err(err)?.ok_or_else(|| "the account vanished".into())
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Removes an account, its key and everything read for it.
+#[tauri::command]
+fn remove_account(id: i64, app: AppHandle, state: State<'_, App>) -> CommandResult<()> {
+    let store = state.store().map_err(err)?;
+    let account = store.account(id).map_err(err)?.ok_or("no such account")?;
+    if account.kind != accounts::CSV {
+        match state.key_entry(id)?.delete_credential() {
+            Ok(()) | Err(keyring_core::Error::NoEntry) => {}
+            Err(e) => return Err(format!("could not remove the key from the keyring: {}", err(e))),
+        }
+    }
+    store.delete_account(id).map_err(err)?;
+    let _ = app.emit("accounts-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
+async fn sync_now(app: AppHandle) {
+    let _ = tauri::async_runtime::spawn_blocking(move || app.state::<App>().sync_accounts(&app)).await;
+}
+
+#[tauri::command]
+fn csv_inspect(text: String) -> CommandResult<csv_import::Inspect> {
+    if text.len() > CSV_LIMIT {
+        return Err("the file is over 50 MB".into());
+    }
+    csv_import::inspect(&text).map_err(err)
+}
+
+/// Imports a CSV file into an existing CSV account (`account`), or into a
+/// new one named `name` for `provider`.
+#[tauri::command]
+fn csv_import(
+    account: Option<i64>,
+    name: String,
+    provider: String,
+    text: String,
+    mapping: csv_import::Mapping,
+    app: AppHandle,
+    state: State<'_, App>,
+) -> CommandResult<Account> {
+    if text.len() > CSV_LIMIT {
+        return Err("the file is over 50 MB".into());
+    }
+    let batch = csv_import::parse(&text, &mapping).map_err(err)?;
+    let store = state.store().map_err(err)?;
+    let id = match account {
+        Some(id) => {
+            let a = store.account(id).map_err(err)?.ok_or("no such account")?;
+            if a.kind != accounts::CSV {
+                return Err("only imported accounts take files".into());
+            }
+            id
+        }
+        None => {
+            let provider = provider.trim().to_lowercase();
+            if provider.is_empty()
+                || provider.len() > 32
+                || !provider.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            {
+                return Err("choose who bills this usage".into());
+            }
+            if name.trim().is_empty() {
+                return Err("give the account a name".into());
+            }
+            store.add_account(accounts::CSV, &provider, name.trim(), None).map_err(err)?
+        }
+    };
+    store.save_account_batch(id, &batch, chrono::Utc::now().timestamp_millis()).map_err(err)?;
+    let _ = app.emit("accounts-updated", ());
+    store.account(id).map_err(err)?.ok_or_else(|| "the account vanished".into())
 }
 
 #[derive(Serialize)]
@@ -341,7 +553,15 @@ pub fn run() {
             let relay_dir = data.join("relay");
             std::fs::create_dir_all(&relay_dir)?;
             let roots = Roots::from_env().map(|r| Roots { relay_dir: Some(relay_dir.clone()), ..r });
-            let state = App { db, roots, relay_dir, status: Mutex::new(Status::default()), scan_lock: Mutex::new(()) };
+            let state = App {
+                db,
+                roots,
+                relay_dir,
+                status: Mutex::new(Status::default()),
+                scan_lock: Mutex::new(()),
+                sync_lock: Mutex::new(()),
+                keyring_error: init_keyring().err(),
+            };
             // Keep an installed relay pointing at this binary if the app moved.
             if let (Ok(settings), Ok(exe)) = (state.claude_settings(), relay_exe())
                 && matches!(claude_relay::status(&settings, &state.relay_dir), Ok(RelayStatus::On { .. }))
@@ -352,6 +572,8 @@ pub fn run() {
             tray(app)?;
             let handle = app.handle().clone();
             std::thread::spawn(move || watch(handle));
+            let handle = app.handle().clone();
+            std::thread::spawn(move || sync_loop(handle));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -366,6 +588,12 @@ pub fn run() {
             save_plan,
             delete_plan,
             set_thresholds,
+            accounts_report,
+            add_account,
+            remove_account,
+            sync_now,
+            csv_inspect,
+            csv_import,
             relay_status,
             relay_install,
             relay_uninstall,
@@ -377,4 +605,22 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Touches the real system keyring, so it only runs on request:
+    /// `cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn keyring_round_trip() {
+        init_keyring().unwrap();
+        let entry = keyring_core::Entry::new(KEYRING_SERVICE, "account-test").unwrap();
+        entry.set_password("sk-test-not-a-key").unwrap();
+        assert_eq!(entry.get_password().unwrap(), "sk-test-not-a-key");
+        entry.delete_credential().unwrap();
+        assert!(matches!(entry.get_password(), Err(keyring_core::Error::NoEntry)));
+    }
 }

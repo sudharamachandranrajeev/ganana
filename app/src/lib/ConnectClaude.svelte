@@ -66,28 +66,6 @@
     overflow-wrap: anywhere;
   }
 
-  .primary {
-    padding: 8px 14px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 600;
-    font-size: 0.88rem;
-  }
-
-  .link {
-    border: 0;
-    background: none;
-    padding: 2px 0;
-    color: var(--accent);
-    font-size: 0.85rem;
-  }
-
-  button:disabled {
-    opacity: 0.6;
-  }
-
   .error {
     margin-top: 10px;
     color: var(--text-primary);

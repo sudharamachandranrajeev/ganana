@@ -3,12 +3,14 @@
 //! models.dev catalog, and builds the reports the dashboard shows.
 //!
 //! It also tracks plan limits (Claude Pro/Max through the status line relay,
-//! ChatGPT through Codex logs) and the plans the user enters.
+//! ChatGPT through Codex logs), the plans the user enters, and usage and
+//! billing read from provider accounts.
 //!
 //! Privacy rule: parsers read token counts, model names, timestamps, limit
 //! percentages and the working folder only. Prompt and response text is
 //! never stored.
 
+pub mod accounts;
 pub mod claude_relay;
 pub mod db;
 mod jsonl;
@@ -18,6 +20,7 @@ pub mod pricing;
 pub mod report;
 pub mod sources;
 
+pub use accounts::{Account, AccountsReport};
 pub use db::Store;
 pub use limits::{Limits, limits};
 pub use model::{LimitSnapshot, Plan, Tokens, UsageEvent};

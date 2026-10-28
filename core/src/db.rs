@@ -7,6 +7,7 @@ use std::path::Path;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::accounts::{Account, Batch, CostRow, UsageRow};
 use crate::model::{LimitSnapshot, Plan, Tokens, UsageEvent};
 
 const MIGRATIONS: &[&str] = &[
@@ -85,6 +86,44 @@ CREATE TABLE alert_sent (
 -- Read Codex logs again for the limit readings older versions skipped.
 -- Events keep their keys, so nothing is counted twice.
 DELETE FROM source_cursor WHERE path LIKE '%rollout-%.jsonl';
+"#,
+    r#"
+-- Provider accounts: synced through an API (the key lives in the system
+-- keyring, never here) or filled from CSV imports.
+CREATE TABLE account (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key_hint TEXT,
+    synced_at INTEGER,
+    error TEXT,
+    credit_total REAL,
+    credit_used REAL
+);
+-- Daily usage per model as the account reports it, by UTC day.
+CREATE TABLE account_usage (
+    account INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input INTEGER NOT NULL,
+    output INTEGER NOT NULL,
+    cache_read INTEGER NOT NULL,
+    cache_write INTEGER NOT NULL,
+    cache_write_1h INTEGER NOT NULL,
+    reasoning INTEGER NOT NULL,
+    requests INTEGER,
+    PRIMARY KEY (account, day, model)
+) WITHOUT ROWID;
+-- Daily billed lines, by UTC day.
+CREATE TABLE account_cost (
+    account INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    item TEXT NOT NULL,
+    model TEXT,
+    usd REAL NOT NULL,
+    PRIMARY KEY (account, day, item)
+) WITHOUT ROWID;
 "#,
 ];
 
@@ -355,5 +394,148 @@ impl Store {
             )?;
         }
         Ok(!seen)
+    }
+
+    pub fn accounts(&self) -> Result<Vec<Account>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, kind, provider, name, key_hint, synced_at, error, credit_total, credit_used
+             FROM account ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Account {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                provider: r.get(2)?,
+                name: r.get(3)?,
+                key_hint: r.get(4)?,
+                synced_at: r.get(5)?,
+                error: r.get(6)?,
+                credit_total: r.get(7)?,
+                credit_used: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn account(&self, id: i64) -> Result<Option<Account>> {
+        Ok(self.accounts()?.into_iter().find(|a| a.id == id))
+    }
+
+    /// Adds an account; returns its id.
+    pub fn add_account(&self, kind: &str, provider: &str, name: &str, key_hint: Option<&str>) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO account (kind, provider, name, key_hint) VALUES (?1, ?2, ?3, ?4)",
+            params![kind, provider, name, key_hint],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Removes an account and everything read for it.
+    pub fn delete_account(&self, id: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM account_usage WHERE account = ?1", [id])?;
+        tx.execute("DELETE FROM account_cost WHERE account = ?1", [id])?;
+        tx.execute("DELETE FROM account WHERE id = ?1", [id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Replaces the account's rows for the batch's days with the batch, and
+    /// marks the account synced at `now_ms`. Rows for the same day and model
+    /// (or item) are added together.
+    pub fn save_account_batch(&self, id: i64, batch: &Batch, now_ms: i64) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let range = params![id, batch.from, batch.to];
+            tx.execute("DELETE FROM account_usage WHERE account = ?1 AND day BETWEEN ?2 AND ?3", range)?;
+            tx.execute("DELETE FROM account_cost WHERE account = ?1 AND day BETWEEN ?2 AND ?3", range)?;
+            let mut usage = tx.prepare_cached(
+                "INSERT INTO account_usage (account, day, model, input, output, cache_read, cache_write,
+                    cache_write_1h, reasoning, requests)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT DO UPDATE SET
+                    input = input + excluded.input, output = output + excluded.output,
+                    cache_read = cache_read + excluded.cache_read, cache_write = cache_write + excluded.cache_write,
+                    cache_write_1h = cache_write_1h + excluded.cache_write_1h,
+                    reasoning = reasoning + excluded.reasoning,
+                    requests = CASE WHEN requests IS NULL AND excluded.requests IS NULL THEN NULL
+                        ELSE coalesce(requests, 0) + coalesce(excluded.requests, 0) END",
+            )?;
+            for u in &batch.usage {
+                let t = &u.tokens;
+                usage.execute(params![
+                    id,
+                    u.day,
+                    u.model,
+                    t.input,
+                    t.output,
+                    t.cache_read,
+                    t.cache_write,
+                    t.cache_write_1h,
+                    t.reasoning,
+                    u.requests
+                ])?;
+            }
+            let mut cost = tx.prepare_cached(
+                "INSERT INTO account_cost (account, day, item, model, usd) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT DO UPDATE SET usd = usd + excluded.usd",
+            )?;
+            for c in &batch.costs {
+                cost.execute(params![id, c.day, c.item, c.model, c.usd])?;
+            }
+            tx.execute("UPDATE account SET synced_at = ?2, error = NULL WHERE id = ?1", params![id, now_ms])?;
+            if let Some((total, used)) = batch.credit {
+                tx.execute(
+                    "UPDATE account SET credit_total = ?2, credit_used = ?3 WHERE id = ?1",
+                    params![id, total, used],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn set_account_error(&self, id: i64, error: Option<&str>) -> Result<()> {
+        self.conn.execute("UPDATE account SET error = ?2 WHERE id = ?1", params![id, error])?;
+        Ok(())
+    }
+
+    /// Account usage rows on or after `since_day` (YYYY-MM-DD), with the
+    /// account id.
+    pub fn account_usage(&self, since_day: &str) -> Result<Vec<(i64, UsageRow)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT account, day, model, input, output, cache_read, cache_write, cache_write_1h, reasoning, requests
+             FROM account_usage WHERE day >= ?1 ORDER BY day",
+        )?;
+        let rows = stmt.query_map([since_day], |r| {
+            Ok((
+                r.get(0)?,
+                UsageRow {
+                    day: r.get(1)?,
+                    model: r.get(2)?,
+                    tokens: Tokens {
+                        input: r.get(3)?,
+                        output: r.get(4)?,
+                        cache_read: r.get(5)?,
+                        cache_write: r.get(6)?,
+                        cache_write_1h: r.get(7)?,
+                        reasoning: r.get(8)?,
+                    },
+                    requests: r.get(9)?,
+                },
+            ))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Account cost rows on or after `since_day`, with the account id.
+    pub fn account_costs(&self, since_day: &str) -> Result<Vec<(i64, CostRow)>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT account, day, item, model, usd FROM account_cost WHERE day >= ?1 ORDER BY day")?;
+        let rows = stmt.query_map([since_day], |r| {
+            Ok((r.get(0)?, CostRow { day: r.get(1)?, item: r.get(2)?, model: r.get(3)?, usd: r.get(4)? }))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }

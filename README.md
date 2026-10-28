@@ -7,8 +7,9 @@ number has a "?" that explains it in plain words.
 
 Everything stays on your machine. Gaṇanā reads only token counts, model names,
 times and folder names; your conversations are never stored or sent anywhere.
-The only network request is a daily price list download from
-[models.dev](https://models.dev) (a built-in copy is used when offline).
+Network requests: a daily price list download from
+[models.dev](https://models.dev) (a built-in copy is used when offline), and, only
+if you add provider accounts, the usage reports of those providers (see below).
 
 ## What it reads
 
@@ -51,6 +52,28 @@ change the levels). Closing the window keeps Gaṇanā running in the tray so
 alerts still arrive; use "Quit" in the tray menu to stop it. Starting it again
 shows the running window.
 
+## Provider accounts
+
+The Accounts page shows what providers actually billed, next to the estimate
+from your local logs. The two are never added together: local logs include
+subscription use no API bill covers, and a bill includes other computers.
+
+| Source      | Needs                                    | Reads                                  |
+| ----------- | ---------------------------------------- | -------------------------------------- |
+| Anthropic   | Admin key (`sk-ant-admin01-`)            | Usage and cost reports, by model       |
+| OpenAI      | Admin key (`sk-admin-`)                  | Completions usage and costs            |
+| OpenRouter  | Management key                           | Activity (30 days) and credit balance  |
+| Anything else (Gemini, TypeSafe, Qwen Cloud) | A CSV export | Date, model, tokens, cost |
+
+- Keys are stored in the system keyring (Secret Service on Linux, Credential
+  Manager on Windows), never in the database, logs or the dashboard. Only the
+  last four characters are shown. Removing an account deletes its key.
+- Accounts sync on start and every 15 minutes. Only usage and cost reports are
+  requested, with read-only calls.
+- A low OpenRouter balance (under 10% or $1) raises a desktop alert.
+- CSV dates must be year-first or Unix times; importing a file replaces the days
+  it covers, so overlapping exports never double count.
+
 ## Build
 
 Needs Rust (stable), Node 20.19+ or 22.12+ and the
@@ -78,8 +101,8 @@ cargo run --release -p ganana-core --example scan -- /tmp/ganana-test.db 30
 ## Roadmap
 
 1. Local logs, prices and the overview dashboard.
-2. Plan limits: Claude Pro/Max and ChatGPT usage windows, with warnings (this release).
-3. API accounts: Anthropic, OpenAI and OpenRouter usage and cost reports.
+2. Plan limits: Claude Pro/Max and ChatGPT usage windows, with warnings.
+3. Provider accounts: Anthropic, OpenAI and OpenRouter reports, CSV import (this release).
 4. A status-bar widget.
 5. Optional sync between your own machines.
 

@@ -213,72 +213,8 @@
     background: var(--kind-3);
   }
 
-  .buttons {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .link {
-    border: 0;
-    background: none;
-    padding: 2px 0;
-    color: var(--accent);
-    font-size: 0.85rem;
-  }
-
-  .primary {
-    padding: 8px 14px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 600;
-    font-size: 0.88rem;
-    transition: transform 0.3s var(--ease);
-  }
-
-  .primary:hover {
-    transform: translateY(-1px);
-  }
-
   .add {
     margin-top: 14px;
-  }
-
-  .form {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 10px 14px;
-    margin-top: 14px;
-    padding: 14px;
-    border-radius: 14px;
-    background: var(--accent-soft);
-  }
-
-  .form .hint,
-  .form .error,
-  .form .buttons {
-    grid-column: 1 / -1;
-    margin: 0;
-  }
-
-  label {
-    display: grid;
-    gap: 4px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-  }
-
-  input,
-  select {
-    width: 100%;
-    min-width: 0;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface-raised);
-    font-size: 0.9rem;
   }
 
   .error {

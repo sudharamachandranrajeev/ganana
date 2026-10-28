@@ -116,6 +116,28 @@ export const EXPLAIN = {
     what: "Claude Code shares your plan's usage limits only with its status line, the line under its input box. Gaṇanā can be that status line: it keeps only the two limit numbers and shows them in Claude Code too.",
     why: 'Without it, Claude limits are not visible to any app. The change is one setting in Claude Code, backed up first, and undone with one click. A status line you already have keeps working.',
   },
+  accounts: {
+    title: 'Provider accounts',
+    what: "What the providers themselves say you used and were billed, read from their own reports with a key you give Gaṇanā. Anthropic and OpenAI need an organisation admin key; OpenRouter needs a management key. Other providers can be added from a usage file you download from their console.",
+    why: 'Your local logs only see this computer. The bill covers every app, server and teammate that used the same account.',
+  },
+  billed: {
+    title: 'Billed cost',
+    what: "The amount the provider charged, by UTC day, as their own cost report shows it. Today's figure usually fills in over the next hours.",
+    why: 'It sits next to the local estimate but is never added to it. The two count different things: local logs include subscription use (Claude Pro/Max, ChatGPT Plus/Pro) that no API bill covers, and the bill includes use from other computers.',
+    like: 'Like your bank statement next to the receipts in your wallet: they overlap, but neither is the whole story.',
+  },
+  credit: {
+    title: 'Prepaid credit',
+    what: 'OpenRouter is paid in advance. This is how much of the credit you bought is still left.',
+    why: 'When it runs out, requests fail until you top up. Gaṇanā warns you when less than a tenth (or $1) is left.',
+    like: 'Like a prepaid phone balance.',
+  },
+  csv: {
+    title: 'Import a usage file',
+    what: 'For providers with no usage API, such as Gemini, TypeSafe or Qwen Cloud: download a usage or billing CSV from their console and choose which column holds the date, model, tokens and cost.',
+    why: 'Importing a newer file replaces the days it covers, so overlapping exports never count twice.',
+  },
 } satisfies Record<string, Explanation>
 
 export type ExplainKey = keyof typeof EXPLAIN

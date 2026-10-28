@@ -3,16 +3,18 @@
   import * as api from './lib/api'
   import type { Status } from './lib/api'
   import { relativeTime } from './lib/format'
+  import AccountsPage from './AccountsPage.svelte'
   import LimitsPage from './LimitsPage.svelte'
   import OverviewPage from './OverviewPage.svelte'
 
   type Theme = 'system' | 'light' | 'dark'
-  type Page = 'overview' | 'limits'
+  type Page = 'overview' | 'limits' | 'accounts'
   const THEME_NAMES: Record<Theme, string> = { system: 'match the system', light: 'light', dark: 'dark' }
   const RANGES = [7, 30, 90]
   const PAGES: [Page, string][] = [
     ['overview', 'Overview'],
     ['limits', 'Plans & limits'],
+    ['accounts', 'Accounts'],
   ]
 
   const stored = (key: string) => {
@@ -30,7 +32,7 @@
     }
   }
 
-  let page = $state<Page>(stored('page') === 'limits' ? 'limits' : 'overview')
+  let page = $state<Page>(PAGES.find(([id]) => id === stored('page'))?.[0] ?? 'overview')
   let days = $state(Number(stored('days')) || 30)
   let metric = $state<'cost' | 'tokens'>(stored('metric') === 'tokens' ? 'tokens' : 'cost')
   let theme = $state<Theme>((stored('theme') as Theme) || 'system')
@@ -75,12 +77,14 @@
       {/each}
     </nav>
     <div class="controls">
-      {#if page === 'overview'}
+      {#if page !== 'limits'}
       <div class="seg" role="radiogroup" aria-label="Time range">
         {#each RANGES as r (r)}
           <button role="radio" aria-checked={days === r} class:on={days === r} onclick={() => (days = r)}>{r} days</button>
         {/each}
       </div>
+      {/if}
+      {#if page === 'overview'}
       <div class="seg" role="radiogroup" aria-label="Measure">
         <button role="radio" aria-checked={metric === 'cost'} class:on={metric === 'cost'} onclick={() => (metric = 'cost')}>Cost</button>
         <button role="radio" aria-checked={metric === 'tokens'} class:on={metric === 'tokens'} onclick={() => (metric = 'tokens')}>Tokens</button>
@@ -122,8 +126,10 @@
 
   {#if page === 'overview'}
     <OverviewPage {days} {metric} {status} {now} />
-  {:else}
+  {:else if page === 'limits'}
     <LimitsPage {now} />
+  {:else}
+    <AccountsPage {days} {now} />
   {/if}
 </main>
 
