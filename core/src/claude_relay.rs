@@ -220,8 +220,40 @@ fn write_settings(path: &Path, s: &Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
-/// Quotes a path for the shell Claude Code runs the command in.
+/// Writes a path for the shell Claude Code runs the command in.
 fn quote(p: &Path) -> String {
-    let s = p.to_string_lossy();
-    if cfg!(windows) { format!("\"{s}\"") } else { format!("'{}'", s.replace('\'', r"'\''")) }
+    if cfg!(windows) {
+        windows_arg(&short_path(p).unwrap_or_else(|| p.to_string_lossy().into_owned()))
+    } else {
+        format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"))
+    }
+}
+
+/// On Windows Claude Code runs the command through Git Bash when it is
+/// installed, else PowerShell. Both take a path with forward slashes and no
+/// spaces as it is (Git Bash drops backslashes), so callers pass the short
+/// 8.3 name. A path that still has spaces is quoted, which works in Git Bash
+/// only.
+pub fn windows_arg(path: &str) -> String {
+    let s = path.replace('\\', "/");
+    if s.contains(' ') { format!("\"{s}\"") } else { s }
+}
+
+/// The short (8.3) form of an existing path, which has no spaces.
+#[cfg(windows)]
+fn short_path(p: &Path) -> Option<String> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    unsafe extern "system" {
+        fn GetShortPathNameW(long: *const u16, short: *mut u16, len: u32) -> u32;
+    }
+    let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buf = vec![0u16; 1024];
+    // SAFETY: `wide` ends with a NUL and `buf` holds `buf.len()` units.
+    let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    (n > 0 && n < buf.len()).then(|| std::ffi::OsString::from_wide(&buf[..n]).to_string_lossy().into_owned())
+}
+
+#[cfg(not(windows))]
+fn short_path(_: &Path) -> Option<String> {
+    None
 }

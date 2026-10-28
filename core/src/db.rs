@@ -125,7 +125,53 @@ CREATE TABLE account_cost (
     PRIMARY KEY (account, day, item)
 ) WITHOUT ROWID;
 "#,
+    r#"
+-- Usage from the user's other computers, read from a shared folder (see
+-- crate::share). `device` is '' for this computer. `shared` marks rows
+-- already written to this computer's file in that folder.
+ALTER TABLE usage_event ADD COLUMN device TEXT NOT NULL DEFAULT '';
+ALTER TABLE usage_event ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX usage_event_unshared ON usage_event(shared) WHERE shared = 0;
+ALTER TABLE limit_snapshot ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
+
+const EVENT_COLUMNS: &str = "key, source, provider, model, project, session, ts, input, output, cache_read,
+    cache_write, cache_write_1h, reasoning, reported_cost";
+
+fn event_row(r: &rusqlite::Row) -> rusqlite::Result<UsageEvent> {
+    Ok(UsageEvent {
+        key: r.get(0)?,
+        source: r.get(1)?,
+        provider: r.get(2)?,
+        model: r.get(3)?,
+        project: r.get(4)?,
+        session: r.get(5)?,
+        ts: r.get(6)?,
+        tokens: Tokens {
+            input: r.get(7)?,
+            output: r.get(8)?,
+            cache_read: r.get(9)?,
+            cache_write: r.get(10)?,
+            cache_write_1h: r.get(11)?,
+            reasoning: r.get(12)?,
+        },
+        reported_cost: r.get(13)?,
+    })
+}
+
+const LIMIT_COLUMNS: &str = "meter, provider, window_minutes, resets_at, used_pct, seen_at";
+
+fn limit_row(r: &rusqlite::Row) -> rusqlite::Result<LimitSnapshot> {
+    Ok(LimitSnapshot {
+        meter: r.get(0)?,
+        provider: r.get(1)?,
+        window_minutes: r.get(2)?,
+        resets_at: r.get(3)?,
+        used_pct: r.get(4)?,
+        seen_at: r.get(5)?,
+    })
+}
 
 /// Read position in one log. `size` and `mtime` detect a replaced or
 /// rewritten file.
@@ -185,12 +231,26 @@ impl Store {
     /// cursor (or the reverse). Events with an existing key are replaced, not
     /// added, and keep their earliest time.
     pub fn commit(&self, path: &str, cursor: &Cursor, events: &[UsageEvent], limits: &[LimitSnapshot]) -> Result<()> {
+        self.commit_from("", path, cursor, events, limits)
+    }
+
+    /// [`Store::commit`] for usage read from another computer's file. A call
+    /// this computer also logged stays this computer's.
+    pub fn commit_from(
+        &self,
+        device: &str,
+        path: &str,
+        cursor: &Cursor,
+        events: &[UsageEvent],
+        limits: &[LimitSnapshot],
+    ) -> Result<()> {
+        let imported = !device.is_empty();
         let tx = self.conn.unchecked_transaction()?;
         {
             let mut insert = tx.prepare_cached(
                 "INSERT INTO usage_event (key, source, provider, model, project, session, ts,
-                    input, output, cache_read, cache_write, cache_write_1h, reasoning, reported_cost)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                    input, output, cache_read, cache_write, cache_write_1h, reasoning, reported_cost, device, shared)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                  ON CONFLICT(key) DO UPDATE SET
                     source = excluded.source, provider = excluded.provider, model = excluded.model,
                     project = excluded.project, session = excluded.session,
@@ -200,7 +260,10 @@ impl Store {
                     input = excluded.input, output = excluded.output,
                     cache_read = excluded.cache_read, cache_write = excluded.cache_write,
                     cache_write_1h = excluded.cache_write_1h, reasoning = excluded.reasoning,
-                    reported_cost = excluded.reported_cost",
+                    reported_cost = excluded.reported_cost,
+                    -- Local changes are shared again; imports change neither.
+                    device = CASE WHEN excluded.device = '' THEN '' ELSE usage_event.device END,
+                    shared = CASE WHEN excluded.device = '' THEN 0 ELSE usage_event.shared END",
             )?;
             for e in events {
                 let t = &e.tokens;
@@ -219,15 +282,25 @@ impl Store {
                     t.cache_write_1h,
                     t.reasoning,
                     e.reported_cost,
+                    device,
+                    imported,
                 ])?;
             }
             let mut limit = tx.prepare_cached(
-                "INSERT INTO limit_snapshot (meter, provider, window_minutes, resets_at, used_pct, seen_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO limit_snapshot (meter, provider, window_minutes, resets_at, used_pct, seen_at, shared)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT DO UPDATE SET seen_at = min(limit_snapshot.seen_at, excluded.seen_at)",
             )?;
             for l in limits {
-                limit.execute(params![l.meter, l.provider, l.window_minutes, l.resets_at, l.used_pct, l.seen_at])?;
+                limit.execute(params![
+                    l.meter,
+                    l.provider,
+                    l.window_minutes,
+                    l.resets_at,
+                    l.used_pct,
+                    l.seen_at,
+                    imported
+                ])?;
             }
             tx.execute(
                 "INSERT INTO source_cursor (path, offset, size, mtime, state) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -242,31 +315,62 @@ impl Store {
 
     /// Every event at or after `since_ms`, oldest first.
     pub fn events_since(&self, since_ms: i64) -> Result<Vec<UsageEvent>> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT key, source, provider, model, project, session, ts, input, output, cache_read,
-                cache_write, cache_write_1h, reasoning, reported_cost
-             FROM usage_event WHERE ts >= ?1 ORDER BY ts",
+        let mut stmt =
+            self.conn.prepare_cached(&format!("SELECT {EVENT_COLUMNS} FROM usage_event WHERE ts >= ?1 ORDER BY ts"))?;
+        let rows = stmt.query_map([since_ms], event_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// This computer's events and limit readings not yet written to the
+    /// shared folder.
+    pub fn unshared(&self) -> Result<(Vec<UsageEvent>, Vec<LimitSnapshot>)> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {EVENT_COLUMNS} FROM usage_event WHERE shared = 0 AND device = '' ORDER BY ts"
+        ))?;
+        let events = stmt.query_map([], event_row)?.collect::<rusqlite::Result<_>>()?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {LIMIT_COLUMNS} FROM limit_snapshot WHERE shared = 0 ORDER BY seen_at"))?;
+        let limits = stmt.query_map([], limit_row)?.collect::<rusqlite::Result<_>>()?;
+        Ok((events, limits))
+    }
+
+    /// Marks what [`Store::unshared`] returned as written. Callers hold the
+    /// scan lock, so nothing changed in between.
+    pub fn mark_shared(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "UPDATE usage_event SET shared = 1 WHERE shared = 0 AND device = '';
+             UPDATE limit_snapshot SET shared = 1 WHERE shared = 0;",
         )?;
-        let rows = stmt.query_map([since_ms], |r| {
-            Ok(UsageEvent {
-                key: r.get(0)?,
-                source: r.get(1)?,
-                provider: r.get(2)?,
-                model: r.get(3)?,
-                project: r.get(4)?,
-                session: r.get(5)?,
-                ts: r.get(6)?,
-                tokens: Tokens {
-                    input: r.get(7)?,
-                    output: r.get(8)?,
-                    cache_read: r.get(9)?,
-                    cache_write: r.get(10)?,
-                    cache_write_1h: r.get(11)?,
-                    reasoning: r.get(12)?,
-                },
-                reported_cost: r.get(13)?,
-            })
-        })?;
+        Ok(())
+    }
+
+    /// Writes everything again, for a new or emptied shared folder.
+    pub fn reset_shared(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "UPDATE usage_event SET shared = 0 WHERE device = '';
+             UPDATE limit_snapshot SET shared = 0;",
+        )?;
+        Ok(())
+    }
+
+    /// Removes usage read from other computers, and where their files were
+    /// read up to, so sharing again reads them from the start.
+    pub fn forget_devices(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "DELETE FROM usage_event WHERE device != '';
+             DELETE FROM source_cursor WHERE path LIKE '%.ganana.jsonl';",
+        )?;
+        Ok(())
+    }
+
+    /// Calls and tokens per computer ('' is this one), and the latest call.
+    pub fn devices(&self) -> Result<Vec<(String, i64, i64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT device, count(*), sum(input + output + cache_read + cache_write + cache_write_1h), max(ts)
+             FROM usage_event GROUP BY device ORDER BY device",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -312,20 +416,10 @@ impl Store {
 
     /// Limit readings first seen at or after `since_ms`, oldest first.
     pub fn limits_since(&self, since_ms: i64) -> Result<Vec<LimitSnapshot>> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT meter, provider, window_minutes, resets_at, used_pct, seen_at
-             FROM limit_snapshot WHERE seen_at >= ?1 ORDER BY seen_at",
-        )?;
-        let rows = stmt.query_map([since_ms], |r| {
-            Ok(LimitSnapshot {
-                meter: r.get(0)?,
-                provider: r.get(1)?,
-                window_minutes: r.get(2)?,
-                resets_at: r.get(3)?,
-                used_pct: r.get(4)?,
-                seen_at: r.get(5)?,
-            })
-        })?;
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {LIMIT_COLUMNS} FROM limit_snapshot WHERE seen_at >= ?1 ORDER BY seen_at"
+        ))?;
+        let rows = stmt.query_map([since_ms], limit_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 

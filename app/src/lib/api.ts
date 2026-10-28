@@ -161,6 +161,24 @@ export interface BarWidget {
   installed: boolean
 }
 
+/** Usage shared with the user's other computers through a synced folder. */
+export interface Device {
+  name: string
+  /** This computer. */
+  this: boolean
+  calls: number
+  tokens: number
+  last_ts: number
+}
+
+export interface Sharing {
+  folder: string | null
+  device: string
+  devices: Device[]
+  last_sync: number | null
+  last_report: { written: number; events: number; limits: number; errors: string[] } | null
+}
+
 export interface Status {
   scanning: boolean
   last_scan: number | null
@@ -183,6 +201,8 @@ export const savePlan = (plan: Plan) => invoke<number>('save_plan', { plan })
 export const deletePlan = (id: number) => invoke<void>('delete_plan', { id })
 export const setThresholds = (thresholds: number[]) => invoke<void>('set_thresholds', { thresholds })
 export const setResetAlerts = (on: boolean) => invoke<void>('set_reset_alerts', { on })
+export const sharing = () => invoke<Sharing>('sharing')
+export const setSharing = (folder: string | null, device: string) => invoke<Sharing>('set_sharing', { folder, device })
 export const barWidgetStatus = () => invoke<BarWidget>('bar_widget_status')
 export const barWidgetInstall = () => invoke<BarWidget>('bar_widget_install')
 export const barWidgetRemove = () => invoke<BarWidget>('bar_widget_remove')

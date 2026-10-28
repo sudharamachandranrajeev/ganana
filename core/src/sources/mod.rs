@@ -52,8 +52,16 @@ impl Roots {
         self.home.join(".qwen/usage")
     }
 
-    fn opencode_db(&self) -> PathBuf {
-        self.home.join(".local/share/opencode/opencode.db")
+    /// opencode keeps its database under `~/.local/share` on every system;
+    /// older Windows builds used the app data folders.
+    fn opencode_dbs(&self) -> Vec<PathBuf> {
+        let mut dbs = vec![self.home.join(".local/share/opencode/opencode.db")];
+        if cfg!(windows) {
+            for var in ["APPDATA", "LOCALAPPDATA"] {
+                dbs.extend(std::env::var_os(var).map(|d| PathBuf::from(d).join("opencode").join("opencode.db")));
+            }
+        }
+        dbs
     }
 
     /// Existing folders worth watching for changes.
@@ -61,9 +69,7 @@ impl Roots {
         let mut dirs = self.claude_dirs();
         dirs.extend([self.codex_dir(), self.gemini_dir(), self.qwen_dir()]);
         dirs.extend(self.relay_dir.clone());
-        if let Some(dir) = self.opencode_db().parent() {
-            dirs.push(dir.to_path_buf());
-        }
+        dirs.extend(self.opencode_dbs().iter().filter_map(|db| db.parent().map(Path::to_path_buf)));
         dirs.sort();
         dirs.dedup();
         dirs.retain(|d| d.is_dir());
@@ -105,8 +111,7 @@ pub fn scan_all(store: &Store, roots: &Roots) -> ScanReport {
             scan_jsonl::<claude_limits::Parser>(store, &file, &mut report);
         }
     }
-    let oc = roots.opencode_db();
-    if oc.is_file() {
+    for oc in roots.opencode_dbs().into_iter().filter(|db| db.is_file()) {
         note(&mut report, &oc, opencode::scan(store, &oc));
     }
     report

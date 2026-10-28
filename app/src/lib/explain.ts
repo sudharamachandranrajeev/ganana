@@ -143,6 +143,11 @@ export const EXPLAIN = {
     what: "A small ring in your desktop's status bar shows how full your fullest usage window is. Click it for every window, its reset time and today's cost.",
     why: 'You see a limit coming without opening anything. The bar reads the same data as this window, so Gaṇanā needs to keep running (closing the window keeps it in the tray).',
   },
+  devices: {
+    title: 'Your other computers',
+    what: "Gaṇanā only sees the AI tools on the computer it runs on. To count every computer, each one writes its usage into a folder you keep in sync between them, and reads the others' from it.",
+    why: 'Plan limits are shared by every computer you use, so the full picture needs all of them. Only numbers travel: token counts, model names, times, project folder names and limit readings. Never your prompts or keys.',
+  },
 } satisfies Record<string, Explanation>
 
 export type ExplainKey = keyof typeof EXPLAIN

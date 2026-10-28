@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Token counts for one model call, normalised across providers:
 /// - `input` is fresh (uncached) input only;
 /// - `output` includes reasoning, because providers bill reasoning as output;
 /// - `reasoning` is the part of `output` spent thinking, kept for display.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tokens {
     pub input: i64,
     pub output: i64,
@@ -38,7 +38,7 @@ impl Tokens {
 
 /// One model call. `key` is unique per call across every source, so reading
 /// the same log twice never counts a call twice.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UsageEvent {
     pub key: String,
     /// The tool that recorded it: claude-code, codex, gemini-cli, qwen-code, opencode.
@@ -57,7 +57,7 @@ pub struct UsageEvent {
 
 /// One reading of a plan's usage limit, such as Claude's 5-hour window at
 /// 23%. Only changes are stored, so the rows form the window's history.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LimitSnapshot {
     /// The limit's owner and name, such as `claude` or `codex`.
     pub meter: String,

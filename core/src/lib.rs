@@ -19,6 +19,7 @@ pub mod limits;
 pub mod model;
 pub mod pricing;
 pub mod report;
+pub mod share;
 pub mod sources;
 
 pub use accounts::{Account, AccountsReport};

@@ -8,6 +8,7 @@
   import Card from './lib/Card.svelte'
   import CsvImport from './lib/CsvImport.svelte'
   import DailyChart from './lib/DailyChart.svelte'
+  import Sharing from './lib/Sharing.svelte'
   import { money } from './lib/format'
 
   let { days, now }: { days: number; now: number } = $props()
@@ -97,6 +98,11 @@
             <button class="link" onclick={() => (adding = 'file')}>Import a usage file (Gemini, TypeSafe, Qwen Cloud…)</button>
           </div>
         {/if}
+      </Card>
+    </div>
+    <div class="wide">
+      <Card title="Your other computers" explain="devices" index={data.accounts.length + 3}>
+        <Sharing {now} />
       </Card>
     </div>
   </div>

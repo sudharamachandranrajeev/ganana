@@ -349,3 +349,13 @@ fn durations_read_plainly() {
     assert_eq!(limits::duration(3 * 86_400 + 4 * 3600), "3 days 4 h");
     assert_eq!(limits::duration(-5), "0 min");
 }
+
+#[test]
+fn windows_paths_work_in_git_bash_and_powershell() {
+    use ganana_core::claude_relay::windows_arg;
+    assert_eq!(
+        windows_arg(r"C:\Users\ANNA~1\AppData\Local\Ganana\ganana.exe"),
+        "C:/Users/ANNA~1/AppData/Local/Ganana/ganana.exe"
+    );
+    assert_eq!(windows_arg(r"C:\Users\Anna Lee\x.exe"), "\"C:/Users/Anna Lee/x.exe\"");
+}

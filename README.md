@@ -84,6 +84,22 @@ ganana bar --format waybar   # text, tooltip, class (ok/warning/critical)
   }
   ```
 
+## Several computers
+
+Gaṇanā reads the AI tools on the computer it runs on. To count all your
+computers, pick a folder that Syncthing, Dropbox or a similar app keeps the
+same on each of them, and turn on sharing with that folder on each computer
+(Accounts page, "Your other computers").
+
+- Each computer appends its own usage to `<name>.ganana.jsonl` in the folder
+  and reads the other computers' files.
+- Only numbers go into the folder: token counts, model names, times, project
+  folder names and limit readings. Never prompts or keys.
+- A call two computers both logged (for example from synced log folders)
+  counts once.
+- Stopping removes the other computers' usage from this one; their files stay
+  in the folder.
+
 ## Provider accounts
 
 The Accounts page shows what providers actually billed, next to the estimate
@@ -105,6 +121,19 @@ subscription use no API bill covers, and a bill includes other computers.
 - A low OpenRouter balance (under 10% or $1) raises a desktop alert.
 - CSV dates must be year-first or Unix times; importing a file replaces the days
   it covers, so overlapping exports never double count.
+
+## Windows
+
+Gaṇanā also builds for Windows 10 and 11 (it needs the WebView2 runtime, which
+current Windows includes). The Build workflow in GitHub Actions makes an
+installer. It reads the same tools from your user folder, keeps keys in
+Credential Manager and shows the fullest usage window in the tray tooltip.
+
+- Connect Claude: Claude Code runs status lines through Git Bash when it is
+  installed, otherwise PowerShell. Gaṇanā writes the command with forward
+  slashes and short (8.3) folder names so it works in both. If a path still has
+  spaces it only works with Git Bash.
+- `ganana bar` prints in a terminal, for scripts and other bars.
 
 ## Build
 
@@ -136,8 +165,8 @@ cargo run --release -p ganana-core --example scan -- /tmp/ganana-test.db 30
 1. Local logs, prices and the overview dashboard.
 2. Plan limits: Claude Pro/Max and ChatGPT usage windows, with warnings.
 3. Provider accounts: Anthropic, OpenAI and OpenRouter reports, CSV import.
-4. Status bar: `ganana bar`, an Omarchy widget, reset notifications (this release).
-5. Windows build and sync between your own machines.
+4. Status bar: `ganana bar`, an Omarchy widget, reset notifications.
+5. Windows, and usage from several computers through a synced folder (this release).
 
 ## License
 

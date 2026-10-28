@@ -12,6 +12,7 @@ use chrono::Local;
 use ganana_core::accounts::{self, Account, AccountsReport, HttpStatus, csv_import};
 use ganana_core::claude_relay::{self, RelayStatus};
 use ganana_core::limits::{self, Alert};
+use ganana_core::share::{self, ShareReport};
 use ganana_core::{Catalog, Limits, Overview, Plan, Roots, ScanReport, Store};
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use serde::Serialize;
@@ -51,6 +52,8 @@ struct App {
     sync_lock: Mutex<()>,
     /// Why the system keyring is unavailable, if it is.
     keyring_error: Option<String>,
+    /// When the shared folder was last synced (Unix ms), and how it went.
+    last_share: Mutex<Option<(i64, ShareReport)>>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -91,7 +94,14 @@ impl App {
         let _one_at_a_time = self.scan_lock.lock().unwrap();
         self.set_status(app, |s| s.scanning = true);
         let report = match self.store() {
-            Ok(store) => ganana_core::scan_all(&store, roots),
+            Ok(store) => {
+                let mut report = ganana_core::scan_all(&store, roots);
+                if let Some(s) = self.share(&store) {
+                    report.events += s.events;
+                    report.limits += s.limits;
+                }
+                report
+            }
             Err(e) => ScanReport { errors: vec![err(e)], ..ScanReport::default() },
         };
         let changed = report.events > 0 || report.limits > 0;
@@ -103,7 +113,45 @@ impl App {
         if changed {
             let _ = app.emit("usage-updated", ());
             self.alert(app);
+            self.update_tray(app);
         }
+    }
+
+    /// Writes this computer's new usage to the shared folder, if there is
+    /// one, and reads the other computers'. Callers hold the scan lock.
+    fn share(&self, store: &Store) -> Option<ShareReport> {
+        let folder = share::folder(store).ok()??;
+        let report = share::sync(store, &folder, &share::device(store).ok()?);
+        *self.last_share.lock().unwrap() = Some((chrono::Utc::now().timestamp_millis(), report.clone()));
+        Some(report)
+    }
+
+    /// [`App::share`] on its own: other computers' files change without
+    /// anything here changing.
+    fn share_tick(&self, app: &AppHandle) {
+        let report = {
+            let _one_at_a_time = self.scan_lock.lock().unwrap();
+            self.store().ok().and_then(|store| self.share(&store))
+        };
+        if report.is_some_and(|r| r.events + r.limits > 0) {
+            let _ = app.emit("usage-updated", ());
+            self.alert(app);
+        }
+    }
+
+    /// The tray tooltip names the fullest window, for desktops without a
+    /// bar widget. Windows cuts tooltips at 127 characters.
+    fn update_tray(&self, app: &AppHandle) {
+        let Some(tray) = app.tray_by_id("main") else { return };
+        let line = self
+            .store()
+            .and_then(|s| ganana_core::bar::bar(&s, &Catalog::load(&s)?, Local::now()))
+            .map(|b| b.windows.first().map_or(b.text, |w| w.line.clone()));
+        let text = match line {
+            Ok(line) => format!("Gaṇanā\n{line}").chars().take(127).collect(),
+            Err(_) => "Gaṇanā".to_string(),
+        };
+        let _ = tray.set_tooltip(Some(text));
     }
 
     /// Shows a desktop notification for each limit that crossed a threshold.
@@ -243,10 +291,13 @@ fn init_keyring() -> Result<(), String> {
 }
 
 /// Checks once a minute for windows that reset.
-fn reset_loop(app: AppHandle) {
+fn minute_loop(app: AppHandle) {
     loop {
         std::thread::sleep(Duration::from_secs(60));
-        app.state::<App>().reset_notices(&app);
+        let state = app.state::<App>();
+        state.share_tick(&app);
+        state.reset_notices(&app);
+        state.update_tray(&app);
     }
 }
 
@@ -338,6 +389,63 @@ fn set_thresholds(thresholds: Vec<i64>, state: State<'_, App>) -> CommandResult<
 #[tauri::command]
 fn set_reset_alerts(on: bool, state: State<'_, App>) -> CommandResult<()> {
     state.store().and_then(|s| s.set_setting(limits::RESET_ALERTS, if on { "on" } else { "off" })).map_err(err)
+}
+
+#[derive(Serialize)]
+struct Sharing {
+    folder: Option<String>,
+    /// This computer's name in the folder.
+    device: String,
+    devices: Vec<share::Device>,
+    /// Unix ms of the last sync.
+    last_sync: Option<i64>,
+    last_report: Option<ShareReport>,
+}
+
+impl App {
+    fn sharing(&self) -> CommandResult<Sharing> {
+        let store = self.store().map_err(err)?;
+        let last = self.last_share.lock().unwrap().clone();
+        Ok(Sharing {
+            folder: share::folder(&store).map_err(err)?.map(|f| f.to_string_lossy().into_owned()),
+            device: share::device(&store).map_err(err)?,
+            devices: share::devices(&store).map_err(err)?,
+            last_sync: last.as_ref().map(|l| l.0),
+            last_report: last.map(|l| l.1),
+        })
+    }
+}
+
+#[tauri::command]
+fn sharing(state: State<'_, App>) -> CommandResult<Sharing> {
+    state.sharing()
+}
+
+/// Starts, changes or (with no folder) stops sharing usage with the user's
+/// other computers. Stopping removes their usage from this computer.
+#[tauri::command]
+async fn set_sharing(folder: Option<String>, device: String, app: AppHandle) -> CommandResult<Sharing> {
+    let state = app.state::<App>();
+    {
+        let _one_at_a_time = state.scan_lock.lock().unwrap();
+        let store = state.store().map_err(err)?;
+        let device = share::clean_name(&device);
+        match folder.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+            Some(f) => {
+                share::check_folder(Path::new(f)).map_err(err)?;
+                store.set_setting(share::FOLDER, f).map_err(err)?;
+            }
+            None => {
+                store.set_setting(share::FOLDER, "").map_err(err)?;
+                store.forget_devices().map_err(err)?;
+                *state.last_share.lock().unwrap() = None;
+            }
+        }
+        store.set_setting(share::DEVICE, &device).map_err(err)?;
+    }
+    state.share_tick(&app);
+    let _ = app.emit("usage-updated", ());
+    state.sharing()
 }
 
 #[tauri::command]
@@ -685,6 +793,7 @@ pub fn run() {
                 scan_lock: Mutex::new(()),
                 sync_lock: Mutex::new(()),
                 keyring_error: init_keyring().err(),
+                last_share: Mutex::new(None),
             };
             // Keep an installed relay pointing at this binary if the app moved.
             if let (Ok(settings), Ok(exe)) = (state.claude_settings(), self_exe())
@@ -699,7 +808,7 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_loop(handle));
             let handle = app.handle().clone();
-            std::thread::spawn(move || reset_loop(handle));
+            std::thread::spawn(move || minute_loop(handle));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -715,6 +824,8 @@ pub fn run() {
             delete_plan,
             set_thresholds,
             set_reset_alerts,
+            sharing,
+            set_sharing,
             bar_widget_status,
             bar_widget_install,
             bar_widget_remove,
