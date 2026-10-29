@@ -44,8 +44,8 @@ no ready-made Linux download yet, so on Linux you build it yourself (Step 1 belo
   would cost at API prices.
 - 🏦 **What you were really billed** (optional) – read the usage reports of your Anthropic,
   OpenAI or OpenRouter accounts, or import a CSV from anywhere else.
-- 💻 **All your computers in one view** (optional) – share usage through a folder that Syncthing,
-  Dropbox or similar keeps in step.
+- 💻 **All your computers in one view** (optional) – share usage through a folder that Syncthing
+  or a similar sync app keeps in step.
 - 📊 **Status bar** – a usage ring in the Omarchy bar, or a line in Waybar or any other bar.
 - 🔒 **Private** – it reads numbers only, never your conversations, and keeps everything on your
   computer.

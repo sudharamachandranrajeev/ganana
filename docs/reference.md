@@ -79,7 +79,7 @@ ganana bar --format waybar   # text, tooltip, class (ok/warning/critical)
 ## Several computers
 
 Gaṇanā reads the AI tools on the computer it runs on. To count all your computers, pick a folder
-that Syncthing, Dropbox or a similar app keeps the same on each of them. Then, on each computer,
+that Syncthing or a similar sync app keeps the same on each of them. Then, on each computer,
 open **Accounts → Your other computers → Share usage between computers**.
 
 - Each computer appends its own usage to `<name>.ganana.jsonl` in the folder, and reads the other
@@ -101,7 +101,7 @@ covers, and a bill includes other computers.
 | Anthropic | Admin key (`sk-ant-admin01-`) | Usage and cost reports, by model |
 | OpenAI | Admin key (`sk-admin-`) | Completions usage and costs |
 | OpenRouter | Management key | Activity (30 days) and credit balance |
-| Anything else (Gemini, TypeSafe, Qwen Cloud) | A CSV export | Date, model, tokens, cost |
+| Any other provider | A CSV export | Date, model, tokens, cost |
 
 - Keys are stored in the system keyring (Secret Service on Linux, Credential Manager on Windows),
   never in the database, logs or the dashboard. Only the last four characters are shown. Removing
