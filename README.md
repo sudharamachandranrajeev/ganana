@@ -69,29 +69,54 @@ browser by <code>app/demo/screenshots.sh</code>.</sub>
 
 ### Step 1 – Get the app
 
-There is no published release yet. Pick your computer:
+Download the file for your computer from the
+[latest release](https://github.com/sudharamachandranrajeev/ganana/releases/latest):
 
-| Your computer | How to get it | Works on |
+| Your computer | File | Works on |
 | --- | --- | --- |
-| 🪟 Windows | The installer from the latest **Build** run (below) | Windows 10 and 11 |
-| 🐧 Linux | Build it from source (below), about 5 minutes | Any 64-bit Linux with WebKitGTK 4.1, including Omarchy |
+| 🪟 Windows | `…_x64-setup.exe` (or `.msi`) | Windows 10 and 11 |
+| 🐧 Linux (Arch, Omarchy and others) | `…_amd64.AppImage` | Any 64-bit Linux with WebKitGTK 4.1 |
+| 🐧 Linux (Debian, Ubuntu) | `…_amd64.deb` | |
+| 🐧 Linux (Fedora, openSUSE) | `…x86_64.rpm` | |
+| 🍎 macOS | `…_universal.dmg` | Intel and Apple silicon |
 
 <details>
-<summary><b>🪟 Windows: download the installer</b></summary>
+<summary><b>🪟 Windows</b></summary>
 
-1. Sign in to GitHub. (GitHub only lets signed-in users download build files.)
-2. Open the [Build runs](https://github.com/sudharamachandranrajeev/ganana/actions/workflows/build.yml)
-   and click the newest one with a green tick.
-3. Under **Artifacts**, download `ganana-windows-installer` and unzip it.
-4. Double-click the `…-setup.exe` inside.
-5. Windows may say *"Windows protected your PC"*. This appears because the app isn't paid-signed,
+1. Double-click the `…-setup.exe`.
+2. Windows may say *"Windows protected your PC"*. This appears because the app isn't paid-signed,
    not because it is harmful. Click **More info → Run anyway**.
-6. Follow the installer, then open **Ganana** from the Start menu.
+3. Follow the installer, then open **Ganana** from the Start menu.
 
 </details>
 
 <details>
-<summary><b>🐧 Linux: build from source</b></summary>
+<summary><b>🐧 Linux: AppImage</b></summary>
+
+1. Put it where your system finds programs, and make it runnable:
+   ```sh
+   mkdir -p ~/.local/bin
+   mv ~/Downloads/Ganana_*_amd64.AppImage ~/.local/bin/
+   chmod +x ~/.local/bin/Ganana_*_amd64.AppImage
+   ln -sf ~/.local/bin/Ganana_*_amd64.AppImage ~/.local/bin/ganana
+   ```
+2. Start it with `ganana &`. The same name runs `ganana bar` in a terminal.
+3. Keep the file where it is: the bar widget and **Connect Claude** remember its place. After
+   moving it, press those buttons again.
+
+</details>
+
+<details>
+<summary><b>🍎 macOS</b></summary>
+
+1. Open the `.dmg` and drag **Ganana** to Applications.
+2. The app isn't paid-signed, so the first time right-click it, choose **Open**, then **Open** again.
+3. Adding provider accounts with a key does not work on macOS yet. Everything else does.
+
+</details>
+
+<details>
+<summary><b>🛠️ Build from source instead</b></summary>
 
 1. Install [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 22 and the
    [Tauri system packages](https://tauri.app/start/prerequisites/) for your distribution. On Arch
