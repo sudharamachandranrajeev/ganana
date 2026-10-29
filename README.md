@@ -1,173 +1,287 @@
-# Gaṇanā (गणना)
+<h1 align="center">
+  <br>
+  <a href="https://github.com/sudharamachandranrajeev/ganana"><img src="app/public/favicon.svg" alt="Gaṇanā" width="140"></a>
+  <br>
+  Gaṇanā
+  <br>
+</h1>
 
-<a href="https://github.com/sudharamachandranrajeev/brahma"><img src="https://img.shields.io/badge/part%20of-Brahma-8a5cf6" alt="Part of Brahma"></a>
+<h4 align="center">See how much your AI coding tools use, what it would cost, and how close you are to your plan's limits.</h4>
 
-Your AI usage, explained. Gaṇanā is a desktop app that reads the local logs of
-your AI coding tools and shows how many tokens you used, what that would cost
-at public API prices, and where it went: by day, model, project and app. Every
-number has a "?" that explains it in plain words.
+<p align="center">
+  <img src="https://img.shields.io/badge/status-early%2C%20no%20release%20yet-e8a33d" alt="Status: early, no release yet">
+  <img src="https://img.shields.io/badge/works%20on-Linux%20%7C%20Windows-555" alt="Works on Linux and Windows">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-2e7d32" alt="Licence MIT"></a>
+  <a href="https://github.com/sudharamachandranrajeev/brahma"><img src="https://img.shields.io/badge/part%20of-Brahma-8a5cf6" alt="Part of Brahma"></a>
+</p>
 
-Everything stays on your machine. Gaṇanā reads only token counts, model names,
-times and folder names; your conversations are never stored or sent anywhere.
-Network requests: a daily price list download from
-[models.dev](https://models.dev) (a built-in copy is used when offline), and, only
-if you add provider accounts, the usage reports of those providers (see below).
+<p align="center">
+  <a href="#-what-it-does">What it does</a> •
+  <a href="#-get-started">Get started</a> •
+  <a href="#-how-it-works">How it works</a> •
+  <a href="#-faq-and-troubleshooting">FAQ</a> •
+  <a href="#%EF%B8%8F-for-developers">For developers</a>
+</p>
 
-## What it reads
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="Gaṇanā's overview: 30 days of AI use, cost per day, and the cards for today and the last 7 days" width="100%">
+</p>
 
-| App          | Where                                              |
-| ------------ | -------------------------------------------------- |
-| Claude Code  | `~/.claude/projects`, `~/.config/claude/projects`, `$CLAUDE_CONFIG_DIR` |
-| Codex CLI    | `~/.codex/sessions` (or `$CODEX_HOME`)             |
-| Gemini CLI   | `~/.gemini/tmp/*/chats`                            |
-| Qwen Code    | `~/.qwen/usage`                                    |
-| opencode     | `~/.local/share/opencode/opencode.db` (read-only)  |
+Gaṇanā (गणना, "counting") is a desktop app for people who use AI coding tools such as Claude
+Code or Codex. It reads the usage those tools already write on your computer and explains it in
+plain words. Every number has a **?** that says what it means. Status: **early (0.1)**. There is
+no ready-made Linux download yet, so on Linux you build it yourself (Step 1 below).
 
-Logs are read incrementally: only new lines are parsed after the first scan,
-and the folders are watched so the dashboard updates by itself.
+## ✨ What it does
 
-Models with no public price (custom aliases, routers) are listed under
-"Models without a price", where you can map each one to a real model.
+- 💰 **What your AI use is worth** – tokens (the chunks of text a model reads and writes) and
+  their cost at public API prices, by day, model, project and tool.
+- ⏳ **Plan limits at a glance** – how full your Claude Pro/Max and ChatGPT 5-hour and weekly
+  windows are, when they reset, and when you would hit them at your current pace.
+- 🔔 **Warnings before you run out** – a desktop alert at 75%, 90% and 100% of a window, and an
+  optional notice when it resets.
+- 🧾 **Plans versus pay-as-you-go** – enter what you pay each month and see what the same use
+  would cost at API prices.
+- 🏦 **What you were really billed** (optional) – read the usage reports of your Anthropic,
+  OpenAI or OpenRouter accounts, or import a CSV from anywhere else.
+- 💻 **All your computers in one view** (optional) – share usage through a folder that Syncthing,
+  Dropbox or similar keeps in step.
+- 📊 **Status bar** – a usage ring in the Omarchy bar, or a line in Waybar or any other bar.
+- 🔒 **Private** – it reads numbers only, never your conversations, and keeps everything on your
+  computer.
 
-## Plans and limits
+Works with **Claude Code, Codex CLI, Gemini CLI, Qwen Code and opencode**.
 
-The "Plans & limits" page shows how full each usage window is, when it resets,
-and when it will fill at your recent pace.
+## 📸 Screenshots
 
-- **ChatGPT (Codex)**: the 5-hour and weekly windows come from the Codex CLI
-  logs. Nothing to set up.
-- **Claude Pro/Max**: Claude Code reports these limits only to its status
-  line. "Connect Claude" sets Gaṇanā as that status line in
-  `~/.claude/settings.json`, after saving a backup next to Gaṇanā's data. If
-  you already had a status line, Gaṇanā runs it and shows its output, so
-  nothing changes on screen. Gaṇanā keeps only the two limit percentages and
-  their reset times. "Disconnect" puts your old setting back.
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/overview-dark.png" alt="Overview in dark mode with models, projects and token types" width="260"><br><sub>Overview (dark)</sub></td>
+    <td align="center"><img src="docs/screenshots/limits-light.png" alt="Plans and limits: Claude and ChatGPT windows with forecasts" width="260"><br><sub>Plans &amp; limits</sub></td>
+    <td align="center"><img src="docs/screenshots/accounts-light.png" alt="Accounts: billed cost per day and per account" width="260"><br><sub>Accounts</sub></td>
+  </tr>
+</table>
 
-  Disconnect before you uninstall Gaṇanā, or Claude Code will point at a
-  program that no longer exists.
+<sub>All screenshots show made-up usage: the real dashboard, fed by the real reports, rendered in a
+browser by <code>app/demo/screenshots.sh</code>.</sub>
 
-You can add your plans (name, monthly price, renewal day) to compare what you
-pay with what the same usage would cost at API prices.
+## 🚀 Get started
 
-Desktop alerts fire once per window when it reaches 75%, 90% and 100% (you can
-change the levels). Closing the window keeps Gaṇanā running in the tray so
-alerts still arrive; use "Quit" in the tray menu to stop it. Starting it again
-shows the running window.
+### Step 1 – Get the app
 
-You can also ask for a notification when a window that warned you resets, so
-you know you can go on. It is off by default.
+There is no published release yet. Pick your computer:
 
-## Status bar
+| Your computer | How to get it | Works on |
+| --- | --- | --- |
+| 🪟 Windows | The installer from the latest **Build** run (below) | Windows 10 and 11 |
+| 🐧 Linux | Build it from source (below), about 5 minutes | Any 64-bit Linux with WebKitGTK 4.1, including Omarchy |
 
-`ganana bar` prints a short summary of the fullest usage window, its reset
-time and today's cost, read from Gaṇanā's database. Gaṇanā must have run at
-least once.
+<details>
+<summary><b>🪟 Windows: download the installer</b></summary>
 
-```sh
-ganana bar                   # JSON with every live window (default)
-ganana bar --format plain    # one line, like "Claude 62%"
-ganana bar --format waybar   # text, tooltip, class (ok/warning/critical)
+1. Sign in to GitHub. (GitHub only lets signed-in users download build files.)
+2. Open the [Build runs](https://github.com/sudharamachandranrajeev/ganana/actions/workflows/build.yml)
+   and click the newest one with a green tick.
+3. Under **Artifacts**, download `ganana-windows-installer` and unzip it.
+4. Double-click the `…-setup.exe` inside.
+5. Windows may say *"Windows protected your PC"*. This appears because the app isn't paid-signed,
+   not because it is harmful. Click **More info → Run anyway**.
+6. Follow the installer, then open **Ganana** from the Start menu.
+
+</details>
+
+<details>
+<summary><b>🐧 Linux: build from source</b></summary>
+
+1. Install [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 22 and the
+   [Tauri system packages](https://tauri.app/start/prerequisites/) for your distribution. On Arch
+   and Omarchy:
+   ```sh
+   sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+   ```
+2. Build it:
+   ```sh
+   git clone https://github.com/sudharamachandranrajeev/ganana
+   cd ganana/app
+   npm install
+   npx tauri build --no-bundle
+   ```
+3. Put the program where your system finds it, then start it:
+   ```sh
+   install -Dm755 ../target/release/ganana ~/.local/bin/ganana
+   ganana &
+   ```
+
+</details>
+
+### Step 2 – First look
+
+There is nothing to set up. Gaṇanā finds your AI tools' logs, reads them and opens the
+**Overview**:
+
+1. The big number is what the last 30 days would cost at public API prices. Switch between
+   **7 days**, **30 days** and **90 days** at the top, or between **Cost** and **Tokens**.
+2. Click any **?** for a plain explanation of that card.
+3. If a card says **Models without a price**, match each one to a real model so it gets priced.
+
+Closing the window keeps Gaṇanā in the tray, so alerts still arrive. Use **Quit** in the tray menu
+to stop it.
+
+### Step 3 – See your plan limits
+
+Open **Plans & limits**.
+
+- **ChatGPT (Codex)** windows appear on their own, from the Codex CLI logs.
+- **Claude Pro/Max**: click **Connect Claude**. Gaṇanā becomes Claude Code's status line (after
+  saving a backup of your setting) and keeps any status line you already had working.
+- Under **Your plans**, click **Add a plan** and enter its monthly price and renewal day, to compare
+  it with API prices.
+
+> [!IMPORTANT]
+> Before you uninstall Gaṇanā, click **Disconnect and restore the old setting** on Plans & limits.
+> Otherwise Claude Code keeps calling a program that is gone.
+
+### Optional steps
+
+- **Status bar**: on Omarchy, click **Add to bar** on Plans & limits. For Waybar and other bars,
+  see [`ganana bar`](docs/reference.md#status-bar).
+- **Billed usage**: on **Accounts**, add an Anthropic or OpenAI admin key, an OpenRouter
+  management key, or import a CSV. Keys stay in your system keyring.
+- **Several computers**: on **Accounts → Your other computers**, click **Share usage between
+  computers** and pick a synced folder. Do the same on each computer.
+
+Every detail (log folders, alerts, bar formats, account keys) is in
+[Gaṇanā in detail](docs/reference.md).
+
+## 🧭 How it works
+
+```mermaid
+flowchart LR
+    T["🤖 Your AI tools<br/>Claude Code, Codex, Gemini…"] -->|"usage logs on your computer"| G["📊 Gaṇanā<br/>reads numbers only"]
+    P["🏷️ Public price list<br/>models.dev, once a day"] --> G
+    G --> D[("🔒 Local database")]
+    G --> B["🔔 Alerts, tray and status bar"]
+    A["🏦 Provider accounts<br/>optional"] -.->|"billing reports"| G
 ```
 
-- **Omarchy**: "Add to bar" on the Plans & limits page installs the
-  `ganana.usage` widget (source in `integrations/omarchy/`) and adds it to the
-  bar. The ring fills with the fullest window; click it for every window and
-  its reset time, middle-click to open Gaṇanā. "Remove from bar" takes it out.
-- **Waybar**:
+- **It reads what your tools already write.** Claude Code, Codex and the others log every model
+  call. Gaṇanā reads the token counts, model names, times and project folder names, and nothing
+  else.
+- **It prices them** with the public price list from [models.dev](https://models.dev),
+  downloaded once a day. A built-in copy is used when you are offline.
+- **It stays on your computer.** The only other network calls are the provider accounts you add.
+  Their keys live in the system keyring, never in the database.
+- **Sharing between computers** writes numbers only (no prompts, no keys) to a folder you choose.
 
-  ```json
-  "custom/ganana": {
-    "exec": "ganana bar --format waybar",
-    "return-type": "json",
-    "interval": 30,
-    "on-click": "ganana"
-  }
-  ```
+## ❓ FAQ and troubleshooting
 
-## Several computers
+<details>
+<summary><b>Is this what I actually pay?</b></summary>
 
-Gaṇanā reads the AI tools on the computer it runs on. To count all your
-computers, pick a folder that Syncthing, Dropbox or a similar app keeps the
-same on each of them, and turn on sharing with that folder on each computer
-(Accounts page, "Your other computers").
+No. It is what the same use would cost at public API prices. On a Claude or ChatGPT subscription
+you pay the plan price instead; add your plan on **Plans & limits** to compare the two. To see real
+bills, add your provider accounts on **Accounts**.
+</details>
 
-- Each computer appends its own usage to `<name>.ganana.jsonl` in the folder
-  and reads the other computers' files.
-- Only numbers go into the folder: token counts, model names, times, project
-  folder names and limit readings. Never prompts or keys.
-- A call two computers both logged (for example from synced log folders)
-  counts once.
-- Stopping removes the other computers' usage from this one; their files stay
-  in the folder.
+<details>
+<summary><b>The dashboard is empty</b></summary>
 
-## Provider accounts
+Gaṇanā only sees tools on this computer, in their usual folders. Use one of the supported tools
+once, then press the refresh button at the top right. The line under the title shows how many log
+folders it is watching. The full list of folders is in the [details page](docs/reference.md#which-logs-it-reads).
+</details>
 
-The Accounts page shows what providers actually billed, next to the estimate
-from your local logs. The two are never added together: local logs include
-subscription use no API bill covers, and a bill includes other computers.
+<details>
+<summary><b>My Claude limits don't show</b></summary>
 
-| Source      | Needs                                    | Reads                                  |
-| ----------- | ---------------------------------------- | -------------------------------------- |
-| Anthropic   | Admin key (`sk-ant-admin01-`)            | Usage and cost reports, by model       |
-| OpenAI      | Admin key (`sk-admin-`)                  | Completions usage and costs            |
-| OpenRouter  | Management key                           | Activity (30 days) and credit balance  |
-| Anything else (Gemini, TypeSafe, Qwen Cloud) | A CSV export | Date, model, tokens, cost |
+Claude Code only reports them to its status line. Click **Connect Claude** on **Plans & limits**,
+then use Claude Code once. The windows appear after its next reply.
+</details>
 
-- Keys are stored in the system keyring (Secret Service on Linux, Credential
-  Manager on Windows), never in the database, logs or the dashboard. Only the
-  last four characters are shown. Removing an account deletes its key.
-- Accounts sync on start and every 15 minutes. Only usage and cost reports are
-  requested, with read-only calls.
-- A low OpenRouter balance (under 10% or $1) raises a desktop alert.
-- CSV dates must be year-first or Unix times; importing a file replaces the days
-  it covers, so overlapping exports never double count.
+<details>
+<summary><b>Does Gaṇanā see my prompts or code?</b></summary>
 
-## Windows
+No. It reads only token counts, model names, times and folder names, and it never stores or sends
+your conversations.
+</details>
 
-Gaṇanā also builds for Windows 10 and 11 (it needs the WebView2 runtime, which
-current Windows includes). The Build workflow in GitHub Actions makes an
-installer. It reads the same tools from your user folder, keeps keys in
-Credential Manager and shows the fullest usage window in the tray tooltip.
+<details>
+<summary><b>Windows says the app might be unsafe</b></summary>
 
-- Connect Claude: Claude Code runs status lines through Git Bash when it is
-  installed, otherwise PowerShell. Gaṇanā writes the command with forward
-  slashes and short (8.3) folder names so it works in both. If a path still has
-  spaces it only works with Git Bash.
-- `ganana bar` prints in a terminal, for scripts and other bars.
+The installer isn't code-signed (a paid certificate). Click **More info → Run anyway**.
+</details>
 
-## Build
+<details>
+<summary><b>How do I stop it completely?</b></summary>
 
-Needs Rust (stable), Node 20.19+ or 22.12+ and the
+Closing the window only hides it. Right-click the tray icon and choose **Quit**.
+</details>
+
+## 🛠️ For developers
+
+<details>
+<summary>Build, test and screenshots</summary>
+
+You need Rust (stable), Node 20.19+ or 22.12+ and the
 [Tauri 2 system dependencies](https://tauri.app/start/prerequisites/).
 
 ```sh
 cd app
 npm install
-npx tauri dev            # run in development
-npx tauri build          # build installers
+npx tauri dev              # run in development
+npx tauri build            # build installers
+npm run check              # type-check the dashboard
+
+cargo test --workspace     # core library tests
+cargo run --release -p ganana-core --example scan -- /tmp/ganana-test.db 30   # report from this machine's logs
+app/demo/screenshots.sh    # re-render docs/screenshots from made-up usage
 ```
-
-Core library tests and a command-line report:
-
-```sh
-cargo test
-cargo run --release -p ganana-core --example scan -- /tmp/ganana-test.db 30
-```
-
-## Layout
 
 - `core/`: Rust library: log parsers, SQLite store, price catalogue, reports.
 - `app/`: Tauri 2 shell (`src-tauri/`) and Svelte 5 dashboard (`src/`).
 - `integrations/omarchy/`: the Omarchy bar widget.
+- CI tests on Linux and Windows and builds the Windows installer (`.github/workflows/build.yml`),
+  by hand or for a `v*` tag.
 
-## Roadmap
+</details>
+
+<details>
+<summary>Roadmap so far</summary>
 
 1. Local logs, prices and the overview dashboard.
 2. Plan limits: Claude Pro/Max and ChatGPT usage windows, with warnings.
 3. Provider accounts: Anthropic, OpenAI and OpenRouter reports, CSV import.
 4. Status bar: `ganana bar`, an Omarchy widget, reset notifications.
-5. Windows, and usage from several computers through a synced folder (this release).
+5. Windows, and usage from several computers through a synced folder.
+
+</details>
+
+<details>
+<summary>Credits</summary>
+
+- [Tauri](https://tauri.app), [Svelte](https://svelte.dev) and [Vite](https://vite.dev)
+- [rusqlite](https://github.com/rusqlite/rusqlite) (SQLite), [chrono](https://github.com/chronotope/chrono),
+  [serde](https://serde.rs), [ureq](https://github.com/algesten/ureq), [csv](https://github.com/BurntSushi/rust-csv),
+  [walkdir](https://github.com/BurntSushi/walkdir) and [notify](https://github.com/notify-rs/notify)
+- [keyring-core](https://crates.io/crates/keyring-core) for the system keyring
+- Prices from [models.dev](https://models.dev)
+
+</details>
+
+## Related
+
+Gaṇanā sits alongside the **Brahma** family of private, self-hosted apps.
+
+| App | What it does |
+| --- | --- |
+| [brahma](https://github.com/sudharamachandranrajeev/brahma) | The shared core and the all-in-one app |
+| [bhandara](https://github.com/sudharamachandranrajeev/bhandara) | See what fills your disks |
+| [bahya-nireekshana](https://github.com/sudharamachandranrajeev/bahya-nireekshana) | See how much internet data you use |
 
 ## License
 
-MIT
+[MIT](LICENSE).
+
+---
+
+> GitHub [@sudharamachandranrajeev](https://github.com/sudharamachandranrajeev)
