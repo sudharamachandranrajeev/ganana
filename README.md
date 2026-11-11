@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  <a href="https://github.com/sudharamachandranrajeev/ganana"><img src="app/public/favicon.svg" alt="Gaṇanā" width="140"></a>
+  <a href="https://github.com/sudharamachandranrajeev/ganana-ai-usage-tracker"><img src="app/public/favicon.svg" alt="Gaṇanā" width="140"></a>
   <br>
   Gaṇanā
   <br>
@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/status-early%2C%20no%20release%20yet-e8a33d" alt="Status: early, no release yet">
   <img src="https://img.shields.io/badge/works%20on-Linux%20%7C%20Windows-555" alt="Works on Linux and Windows">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-2e7d32" alt="Licence MIT"></a>
-  <a href="https://github.com/sudharamachandranrajeev/brahma"><img src="https://img.shields.io/badge/part%20of-Brahma-8a5cf6" alt="Part of Brahma"></a>
+  <a href="https://github.com/sudharamachandranrajeev/brahma-life-suite"><img src="https://img.shields.io/badge/part%20of-Brahma-8a5cf6" alt="Part of Brahma"></a>
 </p>
 
 <p align="center">
@@ -70,7 +70,7 @@ browser by <code>app/demo/screenshots.sh</code>.</sub>
 ### Step 1 – Get the app
 
 Download the file for your computer from the
-[latest release](https://github.com/sudharamachandranrajeev/ganana/releases/latest):
+[latest release](https://github.com/sudharamachandranrajeev/ganana-ai-usage-tracker/releases/latest):
 
 | Your computer | File | Works on |
 | --- | --- | --- |
@@ -126,7 +126,7 @@ Download the file for your computer from the
    ```
 2. Build it:
    ```sh
-   git clone https://github.com/sudharamachandranrajeev/ganana
+   git clone https://github.com/sudharamachandranrajeev/ganana-ai-usage-tracker
    cd ganana/app
    npm install
    npx tauri build --no-bundle
@@ -299,9 +299,9 @@ Gaṇanā sits alongside the **Brahma** family of private, self-hosted apps.
 
 | App | What it does |
 | --- | --- |
-| [brahma](https://github.com/sudharamachandranrajeev/brahma) | The shared core and the all-in-one app |
-| [bhandara](https://github.com/sudharamachandranrajeev/bhandara) | See what fills your disks |
-| [bahya-nireekshana](https://github.com/sudharamachandranrajeev/bahya-nireekshana) | See how much internet data you use |
+| [brahma](https://github.com/sudharamachandranrajeev/brahma-life-suite) | The shared core and the all-in-one app |
+| [bhandara](https://github.com/sudharamachandranrajeev/bhandara-storage-monitor) | See what fills your disks |
+| [bahya-nireekshana](https://github.com/sudharamachandranrajeev/bahya-nireekshana-network-monitor) | See how much internet data you use |
 
 ## License
 
